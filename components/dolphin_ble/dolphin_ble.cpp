@@ -758,7 +758,7 @@ std::string DolphinBle::mode_to_string_(uint8_t mode) {
     case 0x0b:
       return "pickup";
     default:
-      return "unknown";
+      return "NA";
   }
 }
 
@@ -838,7 +838,7 @@ std::string DolphinBle::robot_state_to_string_(uint8_t state) {
     case 0x07:
       return "notConnected";
     default:
-      return "unknown";
+      return "NA";
   }
 }
 
@@ -859,7 +859,7 @@ std::string DolphinBle::pws_state_to_string_(uint8_t state) {
     case 0x06:
       return "sleep";
     default:
-      return "unknown";
+      return "NA";
   }
 }
 
@@ -878,7 +878,7 @@ std::string DolphinBle::water_status_to_string_(uint8_t state) {
     case 0x0f:
       return "loading";
     default:
-      return "unknown";
+      return "NA";
   }
 }
 
@@ -968,7 +968,6 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
     this->publish_numeric_(NUMERIC_MU_SW_VERSION_MAJOR, payload[152]);
     this->publish_numeric_(NUMERIC_MU_SW_VERSION_MINOR, read_u16_be_(payload + 153));
     this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_be_(payload + 146));
-    this->publish_current_cleaning_mode_(payload[167]);
   }
 }
 

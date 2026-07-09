@@ -91,14 +91,6 @@ text_sensor:
     name: Temperature Raw
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: mu_data_raw
-    name: MU Data Raw
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: sm_data_raw
-    name: SM Data Raw
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
     kind: cycle_info_raw
     name: Cycle Info Raw
   - platform: dolphin_ble

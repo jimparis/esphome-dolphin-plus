@@ -36,3 +36,5 @@ async def to_code(config):
     parent = await cg.get_variable(config[CONF_DOLPHIN_BLE_ID])
     var = await text_sensor.new_text_sensor(config)
     cg.add(parent.set_text_sensor(config[CONF_KIND], var))
+    if config[CONF_KIND] in ("cleaning_mode", "in_water_status"):
+        cg.add(var.publish_state("NA"))
