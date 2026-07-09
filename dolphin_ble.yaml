@@ -27,20 +27,20 @@ dolphin_ble:
   auto_probe: true
   probes:
     - name: pws_features
-      packet: ab03fffa1a000002c1
+      text: "03:ab03fffa1a000002c1"
       delay_ms: 1500
     - name: system_status
-      packet: ab03fff807000002ac
+      text: "03:ab03fff807000002ac"
       delay_ms: 1500
     - name: temperature
-      packet: ab03fff809000002ae
+      text: "03:ab03fff809000002ae"
       delay_ms: 1500
     - name: cloud_connection_status
-      packet: ab03fffedf0000038a
+      text: "03:ab03fffedf0000038a"
       delay_ms: 1500
     - name: get_mu_data
-      packet: ab03fffd0100030100ff03ae
+      text: "03:ab03fffd0100030100ff03ae"
       delay_ms: 2000
     - name: get_sm_data
-      packet: ab03fffd0200030200ff03b0
+      text: "03:ab03fffd0200030200ff03b0"
       delay_ms: 2000

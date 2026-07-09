@@ -155,6 +155,10 @@ void DolphinBle::on_gatts_event_(esp_gatts_cb_event_t event, esp_gatt_if_t gatts
     case ESP_GATTS_WRITE_EVT:
       ESP_LOGI(TAG, "Local GATT write handle=%u len=%u data=%s", param->write.handle,
                param->write.len, format_hex_(param->write.value, param->write.len).c_str());
+      if (param->write.need_rsp) {
+        esp_ble_gatts_send_response(gatts_if, param->write.conn_id, param->write.trans_id,
+                                    ESP_GATT_OK, nullptr);
+      }
       if (param->write.handle == this->gatts_cccd_handle_ && param->write.len >= 2) {
         uint16_t cccd = param->write.value[0] | (static_cast<uint16_t>(param->write.value[1]) << 8);
         this->local_notify_enabled_ = (cccd & 0x0001) != 0;
@@ -229,9 +233,10 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
       break;
 
     case ESP_GATTC_NOTIFY_EVT:
-      ESP_LOGI(TAG, "Robot notification handle=%u len=%u data=%s", param->notify.handle,
+      ESP_LOGI(TAG, "Robot notification handle=%u len=%u data=%s text=\"%s\"", param->notify.handle,
                param->notify.value_len,
-               format_hex_(param->notify.value, param->notify.value_len).c_str());
+               format_hex_(param->notify.value, param->notify.value_len).c_str(),
+               format_ascii_(param->notify.value, param->notify.value_len).c_str());
       break;
 
     case ESP_GATTC_DISCONNECT_EVT:
@@ -264,6 +269,15 @@ void DolphinBle::add_probe(const std::string &name, const std::string &packet_he
     ESP_LOGE(TAG, "Invalid probe packet hex for %s: %s", name.c_str(), packet_hex.c_str());
     return;
   }
+  this->probes_.push_back(probe);
+}
+
+void DolphinBle::add_text_probe(const std::string &name, const std::string &packet_text, uint32_t delay_ms) {
+  Probe probe;
+  probe.name = name;
+  probe.text = true;
+  probe.delay_ms = delay_ms;
+  probe.packet.assign(packet_text.begin(), packet_text.end());
   this->probes_.push_back(probe);
 }
 
@@ -378,9 +392,10 @@ void DolphinBle::send_local_notification_(const Probe &probe) {
     ESP_LOGW(TAG, "Skipping empty probe %s", probe.name.c_str());
     return;
   }
-  ESP_LOGI(TAG, "Sending probe %s len=%u data=%s", probe.name.c_str(),
+  ESP_LOGI(TAG, "Sending probe %s len=%u data=%s text=\"%s\"", probe.name.c_str(),
            static_cast<unsigned>(probe.packet.size()),
-           format_hex_(probe.packet.data(), probe.packet.size()).c_str());
+           format_hex_(probe.packet.data(), probe.packet.size()).c_str(),
+           probe.text ? format_ascii_(probe.packet.data(), probe.packet.size()).c_str() : "");
   esp_err_t err = esp_ble_gatts_send_indicate(this->gatts_if_, this->gatts_conn_id_,
                                               this->gatts_char_handle_, probe.packet.size(),
                                               const_cast<uint8_t *>(probe.packet.data()), false);
@@ -452,6 +467,22 @@ std::string DolphinBle::format_hex_(const uint8_t *data, size_t len) {
   for (size_t i = 0; i < len; i++) {
     out.push_back(HEX[(data[i] >> 4) & 0x0F]);
     out.push_back(HEX[data[i] & 0x0F]);
+  }
+  return out;
+}
+
+std::string DolphinBle::format_ascii_(const uint8_t *data, size_t len) {
+  std::string out;
+  out.reserve(len);
+  for (size_t i = 0; i < len; i++) {
+    uint8_t c = data[i];
+    if (c >= 0x20 && c <= 0x7e) {
+      if (c == '\\' || c == '"')
+        out.push_back('\\');
+      out.push_back(static_cast<char>(c));
+    } else {
+      out.push_back('.');
+    }
   }
   return out;
 }

@@ -10,6 +10,7 @@ CONF_NAME_FILTER = "name_filter"
 CONF_AUTO_PROBE = "auto_probe"
 CONF_PROBES = "probes"
 CONF_PACKET = "packet"
+CONF_TEXT = "text"
 CONF_DELAY_MS = "delay_ms"
 
 dolphin_ble_ns = cg.esphome_ns.namespace("dolphin_ble")
@@ -24,7 +25,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_PROBES, default=[]): cv.ensure_list(
             {
                 cv.Required(CONF_NAME): cv.string,
-                cv.Required(CONF_PACKET): cv.string,
+                cv.Exclusive(CONF_PACKET, "probe_payload"): cv.string,
+                cv.Exclusive(CONF_TEXT, "probe_payload"): cv.string,
                 cv.Optional(CONF_DELAY_MS, default=1500): cv.positive_int,
             }
         ),
@@ -39,4 +41,7 @@ async def to_code(config):
     cg.add(var.set_name_filter(config[CONF_NAME_FILTER]))
     cg.add(var.set_auto_probe(config[CONF_AUTO_PROBE]))
     for probe in config[CONF_PROBES]:
-        cg.add(var.add_probe(probe[CONF_NAME], probe[CONF_PACKET], probe[CONF_DELAY_MS]))
+        if CONF_TEXT in probe:
+            cg.add(var.add_text_probe(probe[CONF_NAME], probe[CONF_TEXT], probe[CONF_DELAY_MS]))
+        else:
+            cg.add(var.add_probe(probe[CONF_NAME], probe[CONF_PACKET], probe[CONF_DELAY_MS]))

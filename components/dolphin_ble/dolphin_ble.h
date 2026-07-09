@@ -25,11 +25,13 @@ class DolphinBle : public Component {
   void set_name_filter(const std::string &name) { this->name_filter_ = name; }
   void set_auto_probe(bool auto_probe) { this->auto_probe_ = auto_probe; }
   void add_probe(const std::string &name, const std::string &packet_hex, uint32_t delay_ms);
+  void add_text_probe(const std::string &name, const std::string &packet_text, uint32_t delay_ms);
 
  protected:
   struct Probe {
     std::string name;
     std::vector<uint8_t> packet;
+    bool text{false};
     uint32_t delay_ms{1500};
   };
 
@@ -59,6 +61,7 @@ class DolphinBle : public Component {
   static bool uuid_equal_(const esp_bt_uuid_t &a, const esp_bt_uuid_t &b);
   static bool parse_hex_(const std::string &hex, std::vector<uint8_t> *out);
   static std::string format_hex_(const uint8_t *data, size_t len);
+  static std::string format_ascii_(const uint8_t *data, size_t len);
 
   std::string mac_address_;
   std::string name_filter_;

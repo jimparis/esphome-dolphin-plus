@@ -51,7 +51,7 @@ This dual role is the likely reason a generic nRF Connect client can see the dev
 
 The robot subscribes to the ESP32's local characteristic by writing `0100` to the local CCCD. That suggests the robot receives commands as notifications from the ESP32, while robot-to-ESP32 data arrives as notifications from the robot's remote characteristic.
 
-The ESPHome prototype now validates connection setup, can send raw framed probes as local GATT notifications, and logs robot notifications.
+The ESPHome prototype now validates connection setup, can send text-formatted framed probes as local GATT notifications, and logs robot notifications.
 
 ## IOT Packet Framing
 
@@ -64,6 +64,12 @@ The observed command frames use this layout:
 - Payload length: 2 bytes, big-endian
 - Payload: command-specific bytes
 - Checksum: 2-byte unsigned sum of every preceding frame byte, big-endian
+
+IOT frames are transported as ASCII text notifications in this form:
+
+- `03:<lowercase_frame_hex>`
+
+The `03` prefix matches the IOT source/key byte used by the command frames below. Sending the raw binary frame bytes as the local notification payload completed at the BLE layer but produced no observed robot responses.
 
 Internal parameter read requests use these payloads:
 
@@ -115,6 +121,6 @@ On 2026-07-09, the ESPHome prototype was built and flashed to an ESP32 on `/dev/
 7. Register-for-notify completed with status `0`.
 8. MTU negotiation completed with status `0`, MTU `512`.
 
-The 2026-07-09 probe firmware sent all six configured read probes as local GATT notifications. Each local notification completed with confirmation status `0`.
+The initial 2026-07-09 probe firmware sent all six configured read probes as raw local GATT notifications. Each local notification completed with confirmation status `0`.
 
-No robot notification payloads were observed during the 60-second post-flash capture. The next protocol questions are whether these packets need an additional session/setup command, different pacing, a different command channel, or a robot state prerequisite before responses are emitted.
+No robot notification payloads were observed during the 60-second post-flash capture. The next validation pass sends the same frames using the text notification envelope above.
