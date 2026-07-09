@@ -65,11 +65,13 @@ The observed command frames use this layout:
 - Payload: command-specific bytes
 - Checksum: 2-byte unsigned sum of every preceding frame byte, big-endian
 
-IOT frames are transported as ASCII text notifications in this form:
+Outbound IOT frames are transported as ASCII text notifications in this form:
 
 - `03:<lowercase_frame_hex>`
 
 The `03` prefix matches the IOT source/key byte used by the command frames below. Sending the raw binary frame bytes as the local notification payload completed at the BLE layer but produced no observed robot responses.
+
+Robot responses are also ASCII text notifications. Response frames observed so far start with `:<lowercase_frame_hex>` and may be split across several BLE notifications. The frame length field is sufficient to reassemble the fragments and validate the trailing checksum.
 
 Internal parameter read requests use these payloads:
 
@@ -123,4 +125,13 @@ On 2026-07-09, the ESPHome prototype was built and flashed to an ESP32 on `/dev/
 
 The initial 2026-07-09 probe firmware sent all six configured read probes as raw local GATT notifications. Each local notification completed with confirmation status `0`.
 
-No robot notification payloads were observed during the 60-second post-flash capture. The next validation pass sends the same frames using the text notification envelope above.
+No robot notification payloads were observed during the 60-second post-flash capture.
+
+A later 2026-07-09 validation pass sent the same frames using the text notification envelope above. The robot responded to:
+
+- `pws_features`: response source `0x0d`, destination `0xfffa`, opcode `0x1a`, payload length `3`, payload `000003`, checksum OK.
+- `system_status`: response source `0x0e`, destination `0xfff8`, opcode `0x07`, payload length `53`, checksum OK.
+- `get_mu_data`: response source `0x0d`, destination `0xfffd`, opcode `0x01`, payload length `256`, checksum OK.
+- `get_sm_data`: response source `0x0d`, destination `0xfffd`, opcode `0x02`, payload length `256`, checksum OK.
+
+No response was observed for `temperature` or `cloud_connection_status` in the same idle-state capture.

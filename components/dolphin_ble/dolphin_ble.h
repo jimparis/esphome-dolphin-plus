@@ -55,6 +55,8 @@ class DolphinBle : public Component {
   void enable_remote_notifications_();
   void maybe_send_probe_();
   void send_local_notification_(const Probe &probe);
+  void handle_robot_notification_(const uint8_t *data, size_t len);
+  void maybe_log_complete_text_frame_();
   void log_uuid_(const char *prefix, const esp_bt_uuid_t &uuid);
 
   static bool uuid_from_string_(const char *uuid, esp_bt_uuid_t *out);
@@ -62,6 +64,7 @@ class DolphinBle : public Component {
   static bool parse_hex_(const std::string &hex, std::vector<uint8_t> *out);
   static std::string format_hex_(const uint8_t *data, size_t len);
   static std::string format_ascii_(const uint8_t *data, size_t len);
+  static bool is_text_frame_chunk_(const uint8_t *data, size_t len);
 
   std::string mac_address_;
   std::string name_filter_;
@@ -100,6 +103,7 @@ class DolphinBle : public Component {
   size_t next_probe_index_{0};
   uint32_t last_probe_ms_{0};
   bool probes_started_{false};
+  std::string rx_text_buffer_;
 };
 
 }  // namespace dolphin_ble

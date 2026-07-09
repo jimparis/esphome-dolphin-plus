@@ -28,7 +28,7 @@ dolphin_ble:
   probes:
     - name: pws_features
       text: "03:ab03fffa1a000002c1"
-      delay_ms: 1500
+      delay_ms: 5000
     - name: system_status
       text: "03:ab03fff807000002ac"
       delay_ms: 1500

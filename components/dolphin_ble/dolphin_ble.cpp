@@ -233,10 +233,7 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
       break;
 
     case ESP_GATTC_NOTIFY_EVT:
-      ESP_LOGI(TAG, "Robot notification handle=%u len=%u data=%s text=\"%s\"", param->notify.handle,
-               param->notify.value_len,
-               format_hex_(param->notify.value, param->notify.value_len).c_str(),
-               format_ascii_(param->notify.value, param->notify.value_len).c_str());
+      this->handle_robot_notification_(param->notify.value, param->notify.value_len);
       break;
 
     case ESP_GATTC_DISCONNECT_EVT:
@@ -249,6 +246,7 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
       this->probes_started_ = false;
       this->next_probe_index_ = 0;
       this->last_probe_ms_ = 0;
+      this->rx_text_buffer_.clear();
       this->remote_service_start_ = 0;
       this->remote_service_end_ = 0;
       this->remote_char_handle_ = 0;
@@ -378,9 +376,10 @@ void DolphinBle::maybe_send_probe_() {
   if (!this->probes_started_) {
     this->probes_started_ = true;
     this->last_probe_ms_ = now;
-  } else if (now - this->last_probe_ms_ < this->probes_[this->next_probe_index_].delay_ms) {
     return;
   }
+  if (now - this->last_probe_ms_ < this->probes_[this->next_probe_index_].delay_ms)
+    return;
 
   this->send_local_notification_(this->probes_[this->next_probe_index_]);
   this->last_probe_ms_ = now;
@@ -401,6 +400,79 @@ void DolphinBle::send_local_notification_(const Probe &probe) {
                                               const_cast<uint8_t *>(probe.packet.data()), false);
   if (err != ESP_OK)
     ESP_LOGE(TAG, "Probe %s notification failed: %s", probe.name.c_str(), esp_err_to_name(err));
+}
+
+void DolphinBle::handle_robot_notification_(const uint8_t *data, size_t len) {
+  std::string text = format_ascii_(data, len);
+  ESP_LOGI(TAG, "Robot notification len=%u data=%s text=\"%s\"", static_cast<unsigned>(len),
+           format_hex_(data, len).c_str(), text.c_str());
+
+  if (!is_text_frame_chunk_(data, len))
+    return;
+
+  std::string chunk(reinterpret_cast<const char *>(data), len);
+  if (this->rx_text_buffer_.empty()) {
+    size_t colon = chunk.find(':');
+    if (colon == std::string::npos)
+      return;
+    this->rx_text_buffer_ = chunk.substr(colon);
+  } else {
+    this->rx_text_buffer_ += chunk;
+  }
+
+  this->maybe_log_complete_text_frame_();
+}
+
+void DolphinBle::maybe_log_complete_text_frame_() {
+  while (!this->rx_text_buffer_.empty()) {
+    size_t colon = this->rx_text_buffer_.find(':');
+    if (colon == std::string::npos) {
+      this->rx_text_buffer_.clear();
+      return;
+    }
+    if (colon > 0)
+      this->rx_text_buffer_.erase(0, colon);
+
+    const std::string hex = this->rx_text_buffer_.substr(1);
+    if (hex.size() < 14)
+      return;
+
+    std::vector<uint8_t> header;
+    if (!parse_hex_(hex.substr(0, 14), &header) || header.size() < 7) {
+      ESP_LOGW(TAG, "Dropping malformed robot text frame prefix: %s", this->rx_text_buffer_.c_str());
+      this->rx_text_buffer_.clear();
+      return;
+    }
+
+    uint16_t payload_len = (static_cast<uint16_t>(header[5]) << 8) | header[6];
+    size_t expected_hex_len = (7 + payload_len + 2) * 2;
+    size_t expected_text_len = 1 + expected_hex_len;
+    if (this->rx_text_buffer_.size() < expected_text_len)
+      return;
+
+    std::string frame_hex = this->rx_text_buffer_.substr(1, expected_hex_len);
+    std::vector<uint8_t> frame;
+    if (!parse_hex_(frame_hex, &frame) || frame.size() != 7 + payload_len + 2) {
+      ESP_LOGW(TAG, "Dropping malformed complete robot text frame");
+      this->rx_text_buffer_.erase(0, expected_text_len);
+      continue;
+    }
+
+    uint16_t calculated = 0;
+    for (size_t i = 0; i + 2 < frame.size(); i++)
+      calculated = static_cast<uint16_t>(calculated + frame[i]);
+    uint16_t received =
+        (static_cast<uint16_t>(frame[frame.size() - 2]) << 8) | frame[frame.size() - 1];
+    uint16_t dest = (static_cast<uint16_t>(frame[2]) << 8) | frame[3];
+
+    ESP_LOGI(TAG,
+             "Robot text frame src=0x%02x dest=0x%04x opcode=0x%02x payload_len=%u checksum=%s "
+             "frame=%s",
+             frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad",
+             frame_hex.c_str());
+
+    this->rx_text_buffer_.erase(0, expected_text_len);
+  }
 }
 
 void DolphinBle::log_uuid_(const char *prefix, const esp_bt_uuid_t &uuid) {
@@ -485,6 +557,18 @@ std::string DolphinBle::format_ascii_(const uint8_t *data, size_t len) {
     }
   }
   return out;
+}
+
+bool DolphinBle::is_text_frame_chunk_(const uint8_t *data, size_t len) {
+  if (len == 0)
+    return false;
+  for (size_t i = 0; i < len; i++) {
+    uint8_t c = data[i];
+    bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    if (!hex && c != ':')
+      return false;
+  }
+  return true;
 }
 
 }  // namespace dolphin_ble
