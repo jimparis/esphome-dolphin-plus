@@ -24,6 +24,7 @@ Current implementation notes:
 - `dolphin_ble.yaml` exposes read state, cleaning controls, and manual drive controls through ESPHome.
 - The bridge sends robot commands as text notifications containing framed hex packets.
 - Manual drive is implemented as a direct `FFF7` command with direction and speed bytes.
+- TODO: split this into a public importable ESPHome template and a private local development overlay once the config stabilizes.
 
 Commit hygiene:
 
