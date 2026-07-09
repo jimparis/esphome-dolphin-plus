@@ -19,6 +19,12 @@ Important repo files:
 - `PROTOCOL.md`: documented BLE sequence and UUIDs.
 - `Makefile`: common build, flash, and log commands.
 
+Current implementation notes:
+
+- `dolphin_ble.yaml` exposes read state, cleaning controls, and manual drive controls through ESPHome.
+- The bridge sends robot commands as text notifications containing framed hex packets.
+- Manual drive is implemented as a direct `FFF7` command with direction and speed bytes.
+
 Commit hygiene:
 
 - Commit source/docs/config changes as work progresses.

@@ -2,6 +2,13 @@ esphome:
   name: dolphin-ble
   friendly_name: Dolphin BLE
 
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: Dolphin BLE Fallback
+    password: !secret wifi_ap_password
+
 esp32:
   board: esp32dev
   framework:
@@ -13,6 +20,16 @@ esp32:
 logger:
   level: DEBUG
 
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+captive_portal:
+
 esp32_ble:
   io_capability: none
 
@@ -22,8 +39,9 @@ external_components:
       path: components
 
 dolphin_ble:
-  mac_address: AC:74:C4:0E:D8:6E
-  name_filter: Z4868YMR
+  id: dolphin_bridge
+  mac_address: !secret dolphin_mac
+  name_filter: !secret dolphin_name_filter
   auto_probe: true
   probes:
     - name: pws_features
@@ -44,3 +62,160 @@ dolphin_ble:
     - name: get_sm_data
       text: "03:ab03fffd0200030200ff03b0"
       delay_ms: 2000
+
+text_sensor:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: robot_state
+    name: Robot State
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: pws_state
+    name: PWS State
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cleaning_mode
+    name: Cleaning Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: in_water_status
+    name: In Water Status
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: pws_features
+    name: PWS Features Raw
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: system_status_raw
+    name: System Status Raw
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: temperature_raw
+    name: Temperature Raw
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_data_raw
+    name: MU Data Raw
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: sm_data_raw
+    name: SM Data Raw
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cycle_info_raw
+    name: Cycle Info Raw
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: next_cycle_info_raw
+    name: Next Cycle Raw
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: faults_raw
+    name: Faults Raw
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cleaning_modes_raw
+    name: Cleaning Modes Raw
+
+sensor:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: filter_state
+    name: Filter State
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: is_smart
+    name: Is Smart
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cycle_time
+    name: Cycle Time
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: start_cycle_time
+    name: Cycle Start Time
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cycle_start_utc
+    name: Cycle Start UTC
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: temperature
+    name: Temperature
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: temperature_timestamp
+    name: Temperature Timestamp
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: measuring
+    name: Measuring
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: reading_during_cycle
+    name: Reading During Cycle
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: robot_type
+    name: Robot Type
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: turn_on_count
+    name: Turn On Count
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_sw_version_major
+    name: MU SW Major
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_sw_version_minor
+    name: MU SW Minor
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_flash_write_counter
+    name: MU Flash Write Counter
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_cycle_time
+    name: MU Cycle Time
+
+button:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: start_cleaning
+    name: Start Cleaning
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: stop_cleaning
+    name: Stop Cleaning
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: pickup_mode
+    name: Pickup Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: refresh_status
+    name: Refresh Status
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: manual_drive
+    name: Send Manual Drive
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: quit_manual_drive
+    name: Quit Manual Drive
+
+select:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cleaning_mode
+    name: Cleaning Mode Control
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: manual_drive_direction
+    name: Manual Drive Direction
+
+number:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    name: Manual Drive Speed

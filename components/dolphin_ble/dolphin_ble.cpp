@@ -279,6 +279,64 @@ void DolphinBle::add_text_probe(const std::string &name, const std::string &pack
   this->probes_.push_back(probe);
 }
 
+void DolphinBle::set_numeric_sensor(uint8_t kind, sensor::Sensor *sensor) {
+  if (kind < this->numeric_sensors_.size())
+    this->numeric_sensors_[kind] = sensor;
+}
+
+void DolphinBle::set_text_sensor(uint8_t kind, text_sensor::TextSensor *sensor) {
+  if (kind < this->text_sensors_.size())
+    this->text_sensors_[kind] = sensor;
+}
+
+void DolphinBle::set_cleaning_mode_select(select::Select *select) { this->cleaning_mode_select_ = select; }
+
+void DolphinBle::set_manual_drive_direction_select(select::Select *select) {
+  this->manual_drive_direction_select_ = select;
+}
+
+void DolphinBle::set_manual_drive_speed(float speed) { this->selected_manual_drive_speed_ = speed; }
+
+void DolphinBle::press_start_cleaning() { this->send_command_frame_(0x06, 0xFFF8, {}, "start_up_dolphin"); }
+
+void DolphinBle::press_stop_cleaning() { this->send_command_frame_(0x05, 0xFFF8, {}, "shutdown_dolphin"); }
+
+void DolphinBle::press_pickup_mode() {
+  this->publish_current_cleaning_mode_(0x0b);
+  this->send_command_frame_(0x03, 0xFFE9, {0x0b}, "start_pickup_mode");
+}
+
+void DolphinBle::press_manual_drive() {
+  uint8_t direction = this->selected_manual_drive_direction_;
+  uint8_t speed = static_cast<uint8_t>(std::clamp(this->selected_manual_drive_speed_, 0.0f, 100.0f));
+  this->send_command_frame_(0x03, 0xFFF7, {direction, speed}, "manual_drive");
+}
+
+void DolphinBle::press_quit_manual_drive() {
+  this->send_command_frame_(0x04, 0xFFF7, {}, "quit_manual_drive");
+}
+
+void DolphinBle::set_cleaning_mode_option(const std::string &option) {
+  uint8_t mode = mode_from_string_(option);
+  this->selected_cleaning_mode_ = mode;
+  if (this->cleaning_mode_select_ != nullptr)
+    this->cleaning_mode_select_->publish_state(mode_to_string_(mode));
+  this->send_command_frame_(0x03, 0xFFE9, {mode}, "set_cleaning_mode");
+}
+
+void DolphinBle::set_manual_drive_direction_option(const std::string &option) {
+  uint8_t direction = direction_from_string_(option);
+  this->selected_manual_drive_direction_ = direction;
+  if (this->manual_drive_direction_select_ != nullptr)
+    this->manual_drive_direction_select_->publish_state(direction_to_string_(direction));
+}
+
+void DolphinBle::restart_probes() {
+  this->next_probe_index_ = 0;
+  this->last_probe_ms_ = 0;
+  this->probes_started_ = false;
+}
+
 bool DolphinBle::parse_mac_() {
   unsigned int b[6];
   if (std::sscanf(this->mac_address_.c_str(), "%02x:%02x:%02x:%02x:%02x:%02x", &b[0], &b[1], &b[2],
@@ -402,6 +460,46 @@ void DolphinBle::send_local_notification_(const Probe &probe) {
     ESP_LOGE(TAG, "Probe %s notification failed: %s", probe.name.c_str(), esp_err_to_name(err));
 }
 
+void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
+                                     size_t payload_len, const char *name) {
+  std::vector<uint8_t> frame;
+  frame.reserve(7 + payload_len + 2);
+  frame.push_back(0xab);
+  frame.push_back(0x03);
+  frame.push_back(static_cast<uint8_t>((destination >> 8) & 0xff));
+  frame.push_back(static_cast<uint8_t>(destination & 0xff));
+  frame.push_back(opcode);
+  frame.push_back(static_cast<uint8_t>((payload_len >> 8) & 0xff));
+  frame.push_back(static_cast<uint8_t>(payload_len & 0xff));
+  if (payload != nullptr && payload_len > 0)
+    frame.insert(frame.end(), payload, payload + payload_len);
+
+  uint16_t checksum = 0;
+  for (uint8_t byte : frame)
+    checksum = static_cast<uint16_t>(checksum + byte);
+  frame.push_back(static_cast<uint8_t>((checksum >> 8) & 0xff));
+  frame.push_back(static_cast<uint8_t>(checksum & 0xff));
+
+  std::string text = "03:";
+  text += format_hex_(frame.data(), frame.size());
+  this->tx_text_buffer_ = text;
+  ESP_LOGI(TAG, "Sending command %s opcode=0x%02x dest=0x%04x payload=%s text=\"%s\"", name, opcode,
+           destination, payload_len ? format_hex_(payload, payload_len).c_str() : "",
+           text.c_str());
+  esp_err_t err = esp_ble_gatts_send_indicate(this->gatts_if_, this->gatts_conn_id_,
+                                              this->gatts_char_handle_, text.size(),
+                                              reinterpret_cast<uint8_t *>(this->tx_text_buffer_.data()),
+                                              false);
+  if (err != ESP_OK)
+    ESP_LOGE(TAG, "Command %s notification failed: %s", name, esp_err_to_name(err));
+}
+
+void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination,
+                                     std::initializer_list<uint8_t> payload, const char *name) {
+  std::vector<uint8_t> data(payload.begin(), payload.end());
+  this->send_command_frame_(opcode, destination, data.data(), data.size(), name);
+}
+
 void DolphinBle::handle_robot_notification_(const uint8_t *data, size_t len) {
   std::string text = format_ascii_(data, len);
   ESP_LOGI(TAG, "Robot notification len=%u data=%s text=\"%s\"", static_cast<unsigned>(len),
@@ -471,8 +569,45 @@ void DolphinBle::maybe_log_complete_text_frame_() {
              frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad",
              frame_hex.c_str());
 
+    if (calculated == received)
+      this->parse_robot_text_frame_(frame);
+
     this->rx_text_buffer_.erase(0, expected_text_len);
   }
+}
+
+void DolphinBle::parse_robot_text_frame_(const std::vector<uint8_t> &frame) {
+  if (frame.size() < 9)
+    return;
+  uint16_t dest = read_u16_be_(&frame[2]);
+  uint8_t opcode = frame[4];
+  const uint8_t *payload = &frame[7];
+  size_t payload_len = frame.size() - 9;
+
+  if (dest == 0xFFFA && opcode == 0x1a) {
+    this->publish_pws_features_from_frame_(frame);
+    return;
+  }
+  if (dest == 0xFFF8 && opcode == 0x07) {
+    this->publish_status_from_frame_(frame);
+    return;
+  }
+  if (dest == 0xFFF8 && opcode == 0x09) {
+    this->publish_temperature_from_frame_(frame);
+    return;
+  }
+  if (dest == 0xFFFD && opcode == 0x01) {
+    this->publish_mu_data_from_frame_(frame);
+    return;
+  }
+  if (dest == 0xFFFD && opcode == 0x02) {
+    this->publish_sm_data_from_frame_(frame);
+    return;
+  }
+
+  ESP_LOGD(TAG, "Unrecognized robot response dest=0x%04x opcode=0x%02x payload_len=%u", dest, opcode,
+           static_cast<unsigned>(payload_len));
+  (void) payload;
 }
 
 void DolphinBle::log_uuid_(const char *prefix, const esp_bt_uuid_t &uuid) {
@@ -569,6 +704,324 @@ bool DolphinBle::is_text_frame_chunk_(const uint8_t *data, size_t len) {
       return false;
   }
   return true;
+}
+
+uint16_t DolphinBle::read_u16_be_(const uint8_t *data) {
+  return (static_cast<uint16_t>(data[0]) << 8) | data[1];
+}
+
+uint32_t DolphinBle::read_u32_be_(const uint8_t *data) {
+  return (static_cast<uint32_t>(data[0]) << 24) | (static_cast<uint32_t>(data[1]) << 16) |
+         (static_cast<uint32_t>(data[2]) << 8) | data[3];
+}
+
+uint64_t DolphinBle::read_u64_be_(const uint8_t *data, size_t len) {
+  uint64_t out = 0;
+  for (size_t i = 0; i < len; i++)
+    out = (out << 8) | data[i];
+  return out;
+}
+
+uint32_t DolphinBle::bytes_to_u32_(const uint8_t *data, size_t len) {
+  uint32_t out = 0;
+  for (size_t i = 0; i < len; i++)
+    out = (out << 8) | data[i];
+  return out;
+}
+
+std::string DolphinBle::hex_string_(const uint8_t *data, size_t len) { return format_hex_(data, len); }
+
+std::string DolphinBle::mode_to_string_(uint8_t mode) {
+  switch (mode) {
+    case 0x00:
+      return "empty";
+    case 0x01:
+      return "all";
+    case 0x02:
+      return "short";
+    case 0x03:
+      return "cove";
+    case 0x04:
+      return "floor";
+    case 0x05:
+      return "water";
+    case 0x06:
+      return "ultra";
+    case 0x07:
+      return "spot";
+    case 0x08:
+      return "wall";
+    case 0x09:
+      return "tictac";
+    case 0x0a:
+      return "custom";
+    case 0x0b:
+      return "pickup";
+    default:
+      return "unknown";
+  }
+}
+
+uint8_t DolphinBle::mode_from_string_(const std::string &mode) {
+  if (mode == "all" || mode == "regular")
+    return 0x01;
+  if (mode == "short" || mode == "fast")
+    return 0x02;
+  if (mode == "cove")
+    return 0x03;
+  if (mode == "floor" || mode == "floor_only")
+    return 0x04;
+  if (mode == "water" || mode == "water_line")
+    return 0x05;
+  if (mode == "ultra" || mode == "ultra_clean")
+    return 0x06;
+  if (mode == "spot")
+    return 0x07;
+  if (mode == "wall" || mode == "walls")
+    return 0x08;
+  if (mode == "tictac")
+    return 0x09;
+  if (mode == "custom")
+    return 0x0a;
+  if (mode == "pickup")
+    return 0x0b;
+  if (mode == "empty")
+    return 0x00;
+  return 0x01;
+}
+
+std::string DolphinBle::direction_to_string_(uint8_t direction) {
+  switch (direction) {
+    case 0x01:
+      return "stop";
+    case 0x02:
+      return "forward";
+    case 0x03:
+      return "backward";
+    case 0x04:
+      return "right";
+    case 0x05:
+      return "left";
+    default:
+      return "stop";
+  }
+}
+
+uint8_t DolphinBle::direction_from_string_(const std::string &direction) {
+  if (direction == "forward")
+    return 0x02;
+  if (direction == "backward")
+    return 0x03;
+  if (direction == "right")
+    return 0x04;
+  if (direction == "left")
+    return 0x05;
+  return 0x01;
+}
+
+std::string DolphinBle::robot_state_to_string_(uint8_t state) {
+  switch (state) {
+    case 0x00:
+      return "init";
+    case 0x01:
+      return "mapping";
+    case 0x02:
+      return "scanning";
+    case 0x03:
+      return "recovery";
+    case 0x04:
+      return "finished";
+    case 0x05:
+      return "programming";
+    case 0x06:
+      return "fault";
+    case 0x07:
+      return "notConnected";
+    default:
+      return "unknown";
+  }
+}
+
+std::string DolphinBle::pws_state_to_string_(uint8_t state) {
+  switch (state) {
+    case 0x00:
+      return "off";
+    case 0x01:
+      return "on";
+    case 0x02:
+      return "holdWeekly";
+    case 0x03:
+      return "holdDelay";
+    case 0x04:
+      return "programming";
+    case 0x05:
+      return "onCleanMode";
+    case 0x06:
+      return "sleep";
+    default:
+      return "unknown";
+  }
+}
+
+std::string DolphinBle::water_status_to_string_(uint8_t state) {
+  switch (state) {
+    case 0x00:
+      return "false";
+    case 0x01:
+      return "true";
+    case 0x02:
+      return "unknown";
+    case 0x03:
+      return "error";
+    case 0x04:
+      return "noPBaro";
+    case 0x0f:
+      return "loading";
+    default:
+      return "unknown";
+  }
+}
+
+void DolphinBle::publish_numeric_(uint8_t kind, float value) {
+  if (kind < this->numeric_sensors_.size() && this->numeric_sensors_[kind] != nullptr)
+    this->numeric_sensors_[kind]->publish_state(value);
+}
+
+void DolphinBle::publish_text_(uint8_t kind, const std::string &value) {
+  if (kind < this->text_sensors_.size() && this->text_sensors_[kind] != nullptr)
+    this->text_sensors_[kind]->publish_state(value);
+}
+
+void DolphinBle::publish_current_cleaning_mode_(uint8_t mode) {
+  this->selected_cleaning_mode_ = mode;
+  std::string value = mode_to_string_(mode);
+  this->publish_text_(TEXT_CLEANING_MODE, value);
+  if (this->cleaning_mode_select_ != nullptr)
+    this->cleaning_mode_select_->publish_state(value);
+}
+
+void DolphinBle::publish_pws_features_from_frame_(const std::vector<uint8_t> &frame) {
+  if (frame.size() < 12)
+    return;
+  const uint8_t *payload = &frame[7];
+  size_t payload_len = frame.size() - 9;
+  this->publish_text_(TEXT_PWS_FEATURES, hex_string_(payload, payload_len));
+}
+
+void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
+  if (frame.size() < 16)
+    return;
+  const uint8_t *payload = &frame[7];
+  size_t payload_len = frame.size() - 9;
+  this->publish_text_(TEXT_SYSTEM_STATUS_RAW, hex_string_(payload, payload_len));
+
+  this->publish_text_(TEXT_ROBOT_STATE, robot_state_to_string_(payload[0]));
+  this->publish_text_(TEXT_PWS_STATE, pws_state_to_string_(payload[1]));
+  this->publish_numeric_(NUMERIC_FILTER_STATE, payload[2]);
+  this->publish_current_cleaning_mode_(payload[3]);
+
+  if (payload_len >= 14) {
+    this->publish_numeric_(NUMERIC_CYCLE_TIME, read_u16_be_(payload + 4));
+    this->publish_numeric_(NUMERIC_START_CYCLE_TIME, read_u32_be_(payload + 6));
+    this->publish_numeric_(NUMERIC_CYCLE_START_UTC, read_u32_be_(payload + 10));
+    this->publish_text_(TEXT_CYCLE_INFO_RAW, hex_string_(payload + 4, 10));
+  }
+  if (payload_len >= 15) {
+    this->publish_numeric_(NUMERIC_IS_SMART, payload[14] ? 1.0f : 0.0f);
+  }
+  if (payload_len >= 18) {
+    this->publish_text_(TEXT_NEXT_CYCLE_INFO_RAW, hex_string_(payload + 15, 3));
+  }
+  if (payload_len >= 30) {
+    this->publish_text_(TEXT_FAULTS_RAW, hex_string_(payload + 18, 12));
+  }
+  if (payload_len >= 53) {
+    this->publish_text_(TEXT_CLEANING_MODES_RAW, hex_string_(payload + 30, 23));
+  }
+}
+
+void DolphinBle::publish_temperature_from_frame_(const std::vector<uint8_t> &frame) {
+  if (frame.size() < 17)
+    return;
+  const uint8_t *payload = &frame[7];
+  size_t payload_len = frame.size() - 9;
+  this->publish_text_(TEXT_TEMPERATURE_RAW, hex_string_(payload, payload_len));
+  this->publish_text_(TEXT_IN_WATER_STATUS, water_status_to_string_(payload[0]));
+  int16_t temperature = static_cast<int16_t>(read_u16_be_(payload + 1));
+  this->publish_numeric_(NUMERIC_TEMPERATURE, static_cast<float>(temperature));
+  this->publish_numeric_(NUMERIC_READING_DURING_CYCLE, payload[3] ? 1.0f : 0.0f);
+  this->publish_numeric_(NUMERIC_MEASURING, payload[4] ? 1.0f : 0.0f);
+  this->publish_numeric_(NUMERIC_TEMPERATURE_TIMESTAMP, static_cast<float>(read_u64_be_(payload + 5, 5)));
+}
+
+void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) {
+  if (frame.size() < 16)
+    return;
+  const uint8_t *payload = &frame[7];
+  size_t payload_len = frame.size() - 9;
+  this->publish_text_(TEXT_MU_DATA_RAW, hex_string_(payload, payload_len));
+
+  if (payload_len >= 172) {
+    this->publish_numeric_(NUMERIC_ROBOT_TYPE, read_u16_be_(payload + 132));
+    this->publish_numeric_(NUMERIC_MU_FLASH_WRITE_COUNTER, read_u32_be_(payload + 134));
+    this->publish_numeric_(NUMERIC_MU_CYCLE_TIME, read_u16_be_(payload + 138));
+    this->publish_numeric_(NUMERIC_MU_SW_VERSION_MAJOR, payload[152]);
+    this->publish_numeric_(NUMERIC_MU_SW_VERSION_MINOR, read_u16_be_(payload + 153));
+    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_be_(payload + 146));
+    this->publish_current_cleaning_mode_(payload[167]);
+  }
+}
+
+void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) {
+  if (frame.size() < 16)
+    return;
+  const uint8_t *payload = &frame[7];
+  size_t payload_len = frame.size() - 9;
+  this->publish_text_(TEXT_SM_DATA_RAW, hex_string_(payload, payload_len));
+}
+
+void DolphinBleButton::press_action() {
+  if (this->parent_ == nullptr)
+    return;
+  switch (this->kind_) {
+    case 0:
+      this->parent_->press_start_cleaning();
+      break;
+    case 1:
+      this->parent_->press_stop_cleaning();
+      break;
+    case 2:
+      this->parent_->press_pickup_mode();
+      break;
+    case 3:
+      this->parent_->restart_probes();
+      break;
+    case 4:
+      this->parent_->press_manual_drive();
+      break;
+    case 5:
+      this->parent_->press_quit_manual_drive();
+      break;
+    default:
+      break;
+  }
+}
+
+void DolphinBleSelect::control(const std::string &value) {
+  if (this->parent_ == nullptr)
+    return;
+  if (this->kind_ == 0) {
+    this->parent_->set_cleaning_mode_option(value);
+  } else if (this->kind_ == 1) {
+    this->parent_->set_manual_drive_direction_option(value);
+  }
+}
+
+void DolphinBleNumber::control(float value) {
+  if (this->parent_ == nullptr)
+    return;
+  this->parent_->set_manual_drive_speed(value);
+  this->publish_state(value);
 }
 
 }  // namespace dolphin_ble

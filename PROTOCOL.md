@@ -105,10 +105,26 @@ Write/control commands identified but intentionally not sent yet:
 - `start_up_dolphin`: opcode `06`, destination `FFF8`, no payload.
 - `shutdown_dolphin`: opcode `05`, destination `FFF8`, no payload.
 - `set_cleaning_mode`: opcode `03`, destination `FFE9`, 1-byte payload.
+- `manual_drive`: opcode `03`, destination `FFF7`, 2-byte payload:
+  - byte 0: direction (`01` stop, `02` forward, `03` backward, `04` right, `05` left)
+  - byte 1: speed (`0`-`100`)
+- `quit_manual_drive`: opcode `04`, destination `FFF7`, no payload.
 - `set_cycle_time`: opcode `01`, destination `FFE9`, 2-byte payload.
 - `set_robot_leds`: opcode `10`, destination `FFF7`, 3-byte payload.
 - `reset_filter_indicator`: opcode `0a`, destination `FFF7`, no payload.
 - `quick_features`: opcode `0b`, destination `FFF9`, 1-byte payload.
+
+## ESPHome Exposure
+
+The ESP32 bridge now exposes:
+
+- current robot state, PWS state, cleaning mode, in-water status, and filter state
+- raw status blocks for system, temperature, MU, and SM
+- robot type, turn-on count, MU firmware fields, temperature, and cycle timing fields that have been decoded so far
+- cleaning-mode control, start/stop, pickup, refresh, and manual drive controls
+- manual drive direction and speed as separate controls, with a direct `manual_drive` packet assembled from them
+
+`get_sm_data` is still mostly exposed as a raw 256-byte blob in the bridge. The decoded protocol notes suggest it contains timezone, quick-features, PWS SW version, weekly schedule, delay, cycle times, and Wi-Fi SSID fields, but those offsets have not yet been lifted into individual ESPHome entities.
 
 ## ESPHome Prototype Validation
 
