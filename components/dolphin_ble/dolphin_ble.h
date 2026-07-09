@@ -133,6 +133,7 @@ class DolphinBle : public Component {
   static bool parse_hex_(const std::string &hex, std::vector<uint8_t> *out);
   static std::string format_hex_(const uint8_t *data, size_t len);
   static std::string format_ascii_(const uint8_t *data, size_t len);
+  static std::string extract_printable_runs_(const uint8_t *data, size_t len);
   static bool is_text_frame_chunk_(const uint8_t *data, size_t len);
   static uint16_t read_u16_be_(const uint8_t *data);
   static uint32_t read_u32_be_(const uint8_t *data);

@@ -694,6 +694,30 @@ std::string DolphinBle::format_ascii_(const uint8_t *data, size_t len) {
   return out;
 }
 
+std::string DolphinBle::extract_printable_runs_(const uint8_t *data, size_t len) {
+  std::string out;
+  std::string current;
+  for (size_t i = 0; i < len; i++) {
+    uint8_t c = data[i];
+    if (c >= 0x20 && c <= 0x7e) {
+      current.push_back(static_cast<char>(c));
+      continue;
+    }
+    if (current.size() >= 4) {
+      if (!out.empty())
+        out += " | ";
+      out += current;
+    }
+    current.clear();
+  }
+  if (current.size() >= 4) {
+    if (!out.empty())
+      out += " | ";
+    out += current;
+  }
+  return out;
+}
+
 bool DolphinBle::is_text_frame_chunk_(const uint8_t *data, size_t len) {
   if (len == 0)
     return false;
@@ -758,7 +782,7 @@ std::string DolphinBle::mode_to_string_(uint8_t mode) {
     case 0x0b:
       return "pickup";
     default:
-      return "NA";
+      return "unknown";
   }
 }
 
@@ -859,7 +883,7 @@ std::string DolphinBle::pws_state_to_string_(uint8_t state) {
     case 0x06:
       return "sleep";
     default:
-      return "NA";
+      return "unknown";
   }
 }
 
@@ -896,7 +920,7 @@ void DolphinBle::publish_current_cleaning_mode_(uint8_t mode) {
   this->selected_cleaning_mode_ = mode;
   std::string value = mode_to_string_(mode);
   this->publish_text_(TEXT_CLEANING_MODE, value);
-  if (this->cleaning_mode_select_ != nullptr)
+  if (this->cleaning_mode_select_ != nullptr && value != "unknown")
     this->cleaning_mode_select_->publish_state(value);
 }
 
@@ -977,6 +1001,9 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
   this->publish_text_(TEXT_SM_DATA_RAW, hex_string_(payload, payload_len));
+  std::string printable_runs = extract_printable_runs_(payload, payload_len);
+  if (!printable_runs.empty())
+    ESP_LOGI(TAG, "SM printable runs: %s", printable_runs.c_str());
 }
 
 void DolphinBleButton::press_action() {

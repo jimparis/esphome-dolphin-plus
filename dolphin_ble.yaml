@@ -83,10 +83,6 @@ text_sensor:
     name: PWS Features Raw
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: system_status_raw
-    name: System Status Raw
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
     kind: temperature_raw
     name: Temperature Raw
   - platform: dolphin_ble
@@ -101,10 +97,6 @@ text_sensor:
     dolphin_ble_id: dolphin_bridge
     kind: faults_raw
     name: Faults Raw
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: cleaning_modes_raw
-    name: Cleaning Modes Raw
 
 sensor:
   - platform: dolphin_ble

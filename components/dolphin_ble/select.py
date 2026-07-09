@@ -50,7 +50,6 @@ async def to_code(config):
     parent = await cg.get_variable(config[CONF_DOLPHIN_BLE_ID])
     kind = KINDS[config[CONF_KIND]]
     var = await select.new_select(config, parent, kind, options=OPTIONS[kind])
-    cg.add(var.publish_state(OPTIONS[kind][0]))
     if kind == 0:
         cg.add(parent.set_cleaning_mode_select(var))
     else:

@@ -126,6 +126,36 @@ The ESP32 bridge now exposes:
 
 `get_sm_data` is still mostly exposed as a raw 256-byte blob in the bridge. The decoded protocol notes suggest it contains timezone, quick-features, PWS SW version, weekly schedule, delay, cycle times, and Wi-Fi SSID fields, but those offsets have not yet been lifted into individual ESPHome entities.
 
+The next decode pass should focus on these SM fields:
+
+- `wifi.netName`
+- `systemState.timeZone` and `systemState.timeZoneName`
+- `weeklySettings`
+- `delay`
+- `cleaningModes`
+- `led`
+- `featureEn`
+
+The app-side parser also shows the current top-level `system_status` layout:
+
+- `cleaning_mode`
+- `cleaning_modes`
+- `cycle_info`
+- `filter_state`
+- `next_cycle_info`
+- `sm_state`
+- `mu_state`
+
+The app models map those to:
+
+- `sm_state` -> `PwsState` (`off`, `on`, `hold_weekly`, `hold_delay`, `programing`, `on_clean_mode`, `sleep`, `unknown`)
+- `mu_state` -> `RobotState` (`init`, `mapping`, `cleaning`, `recovery`, `finished`, `programing`, `fault`, `not_connected`, `unknown`)
+- `cleaning_mode` -> `CleanMode` (`regular`, `all_surfaces`, `fast`, `cove`, `floor_only`, `water_line`, `ultra_clean`, `spot`, `wall_only`, `tic_tac`, `custom`, `pick_up`, `empty`, `unknown`)
+- `filter_state` -> filter bag indication byte
+- `cycle_info` and `next_cycle_info` -> mode plus duration/time fields
+- `cleaning_modes` -> 32-byte mode estimate table
+- `systemStateBuoyData` -> `batteryPercentage` and `isCharging` when present
+
 ## ESPHome Prototype Validation
 
 On 2026-07-09, the ESPHome prototype was built and flashed to an ESP32 on `/dev/ttyUSB0`. The runtime log showed:
