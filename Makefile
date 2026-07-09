@@ -2,7 +2,7 @@ ESPHOME ?= uv run esphome
 CONFIG ?= dolphin_ble.yaml
 PORT ?= /dev/ttyUSB0
 
-.PHONY: help sync compile build flash upload logs logs-protocol run clean
+.PHONY: help sync compile build flash upload logs logs-protocol run dashboard clean
 
 help:
 	@echo "Targets:"
@@ -13,6 +13,8 @@ help:
 	@echo "  make logs-protocol"
 	@echo "                 Stream Dolphin protocol log lines from $(PORT)"
 	@echo "  make run      Compile, upload, and stream logs"
+	@echo "  make dashboard"
+	@echo "                 Start the ESPHome dashboard in this repo"
 	@echo "  make clean    Remove ESPHome build output"
 
 sync:
@@ -32,6 +34,9 @@ logs-protocol:
 
 run:
 	$(ESPHOME) run $(CONFIG) --device $(PORT)
+
+dashboard:
+	$(ESPHOME) dashboard .
 
 clean:
 	rm -rf .esphome/build
