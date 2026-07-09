@@ -26,6 +26,8 @@ KINDS = {
     "cycle_info_summary": 14,
     "next_cycle_info_summary": 15,
     "sm_summary": 16,
+    "faults_summary": 17,
+    "cleaning_modes_summary": 18,
 }
 
 CONFIG_SCHEMA = text_sensor.text_sensor_schema().extend(

@@ -40,6 +40,7 @@ dolphin_ble:
   mac_address: !secret dolphin_mac
   name_filter: !secret dolphin_name_filter
   auto_probe: true
+  repeat_probes: true
   probes:
     - name: pws_features
       text: "03:ab03fffa1a000002c1"
@@ -49,9 +50,6 @@ dolphin_ble:
       delay_ms: 1500
     - name: temperature
       text: "03:ab03fff809000002ae"
-      delay_ms: 1500
-    - name: cloud_connection_status
-      text: "03:ab03fffedf0000038a"
       delay_ms: 1500
     - name: get_mu_data
       text: "03:ab03fffd0100030100ff03ae"
@@ -97,6 +95,14 @@ text_sensor:
     dolphin_ble_id: dolphin_bridge
     kind: sm_summary
     name: SM Summary
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: faults_summary
+    name: Faults
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cleaning_modes_summary
+    name: Cleaning Modes
 
 sensor:
   - platform: dolphin_ble

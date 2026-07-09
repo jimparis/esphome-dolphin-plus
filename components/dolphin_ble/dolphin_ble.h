@@ -25,7 +25,7 @@ namespace dolphin_ble {
 class DolphinBle : public Component {
  public:
   static constexpr size_t NUM_NUMERIC_SENSORS = 16;
-  static constexpr size_t NUM_TEXT_SENSORS = 17;
+  static constexpr size_t NUM_TEXT_SENSORS = 19;
 
   void setup() override;
   void loop() override;
@@ -34,6 +34,7 @@ class DolphinBle : public Component {
   void set_mac_address(const std::string &mac) { this->mac_address_ = mac; }
   void set_name_filter(const std::string &name) { this->name_filter_ = name; }
   void set_auto_probe(bool auto_probe) { this->auto_probe_ = auto_probe; }
+  void set_repeat_probes(bool repeat_probes) { this->repeat_probes_ = repeat_probes; }
   void add_probe(const std::string &name, const std::string &packet_hex, uint32_t delay_ms);
   void add_text_probe(const std::string &name, const std::string &packet_text, uint32_t delay_ms);
 
@@ -89,6 +90,8 @@ class DolphinBle : public Component {
     TEXT_CYCLE_INFO_SUMMARY = 14,
     TEXT_NEXT_CYCLE_INFO_SUMMARY = 15,
     TEXT_SM_SUMMARY = 16,
+    TEXT_FAULTS_SUMMARY = 17,
+    TEXT_CLEANING_MODES_SUMMARY = 18,
   };
 
   enum ManualDriveButtonKind : uint8_t {
@@ -180,6 +183,9 @@ class DolphinBle : public Component {
   bool cccd_written_{false};
   bool mtu_done_{false};
   bool auto_probe_{false};
+  bool repeat_probes_{false};
+  bool in_water_capability_known_{false};
+  bool in_water_capable_{false};
 
   esp_gatt_if_t gatts_if_{ESP_GATT_IF_NONE};
   esp_gatt_if_t gattc_if_{ESP_GATT_IF_NONE};

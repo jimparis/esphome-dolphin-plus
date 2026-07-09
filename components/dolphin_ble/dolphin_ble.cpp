@@ -439,9 +439,23 @@ void DolphinBle::maybe_send_probe_() {
   if (now - this->last_probe_ms_ < this->probes_[this->next_probe_index_].delay_ms)
     return;
 
-  this->send_local_notification_(this->probes_[this->next_probe_index_]);
+  const Probe &probe = this->probes_[this->next_probe_index_];
+  if (probe.name == "temperature" && this->in_water_capability_known_ && !this->in_water_capable_) {
+    ESP_LOGW(TAG, "Skipping temperature probe: power supply does not advertise in-water support");
+    this->last_probe_ms_ = now;
+    this->next_probe_index_++;
+    if (this->next_probe_index_ >= this->probes_.size() && this->repeat_probes_)
+      this->next_probe_index_ = 0;
+    return;
+  }
+
+  this->send_local_notification_(probe);
   this->last_probe_ms_ = now;
   this->next_probe_index_++;
+  if (this->next_probe_index_ >= this->probes_.size() && this->repeat_probes_) {
+    this->next_probe_index_ = 0;
+    ESP_LOGI(TAG, "Probe cycle complete; scheduling another status poll");
+  }
 }
 
 void DolphinBle::send_local_notification_(const Probe &probe) {
@@ -966,7 +980,16 @@ void DolphinBle::publish_pws_features_from_frame_(const std::vector<uint8_t> &fr
     return;
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
-  this->publish_text_(TEXT_PWS_FEATURES, hex_string_(payload, payload_len));
+  if (payload_len < 3)
+    return;
+
+  this->in_water_capability_known_ = true;
+  this->in_water_capable_ = (payload[1] & 0x01) != 0;
+  std::string summary = "network_sensing=" + std::string((payload[0] & 0x01) ? "true" : "false");
+  summary += " in_water=" + std::string(this->in_water_capable_ ? "true" : "false");
+  summary += " cellular=" + std::string((payload[2] & 0x01) ? "true" : "false");
+  this->publish_text_(TEXT_PWS_FEATURES, summary);
+  ESP_LOGI(TAG, "PWS features: %s", summary.c_str());
 }
 
 void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
@@ -1004,6 +1027,10 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
     next_cycle += " raw=" + hex_string_(payload + 15, 3);
     this->publish_text_(TEXT_NEXT_CYCLE_INFO_SUMMARY, next_cycle);
   }
+  if (payload_len >= 30)
+    this->publish_text_(TEXT_FAULTS_SUMMARY, hex_string_(payload + 18, 12));
+  if (payload_len >= 53)
+    this->publish_text_(TEXT_CLEANING_MODES_SUMMARY, hex_string_(payload + 30, 23));
   this->publish_text_(TEXT_SYSTEM_STATUS_SUMMARY, status_summary);
 }
 

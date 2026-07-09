@@ -181,3 +181,17 @@ A later 2026-07-09 validation pass sent the same frames using the text notificat
 - `get_sm_data`: response source `0x0d`, destination `0xfffd`, opcode `0x02`, payload length `256`, checksum OK.
 
 No response was observed for `temperature` or `cloud_connection_status` in the same idle-state capture.
+
+The `pws_features` response for this unit is `000003`. Its feature map reports
+`in_water=false`, so the bridge now skips the temperature request and exposes
+that capability in the PWS Features entity. Sending the temperature request
+despite that flag produced a malformed low-level ACL packet and no GATT
+response; it is not a valid temperature payload.
+
+The start command is sent as the local GATT-server notification used by the
+power supply's BLE service. After `start_up_dolphin` (`03:ab03fff806000002ab`),
+this unit emitted a malformed ACL packet with raw bytes `00 10 01 00 37`.
+The packet declares an ACL payload length of one byte but omits the L2CAP
+length field, so ESP-IDF drops it before ATT/GATT can expose an acknowledgement.
+This is distinct from the valid status, MU, and SM responses; command success
+must currently be verified by the next system-status poll.

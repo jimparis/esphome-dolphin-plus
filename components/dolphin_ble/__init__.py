@@ -8,6 +8,7 @@ DEPENDENCIES = ["esp32_ble"]
 
 CONF_NAME_FILTER = "name_filter"
 CONF_AUTO_PROBE = "auto_probe"
+CONF_REPEAT_PROBES = "repeat_probes"
 CONF_PROBES = "probes"
 CONF_PACKET = "packet"
 CONF_TEXT = "text"
@@ -22,6 +23,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_MAC_ADDRESS): cv.mac_address,
         cv.Optional(CONF_NAME_FILTER, default=""): cv.string,
         cv.Optional(CONF_AUTO_PROBE, default=False): cv.boolean,
+        cv.Optional(CONF_REPEAT_PROBES, default=False): cv.boolean,
         cv.Optional(CONF_PROBES, default=[]): cv.ensure_list(
             {
                 cv.Required(CONF_NAME): cv.string,
@@ -40,6 +42,7 @@ async def to_code(config):
     cg.add(var.set_mac_address(str(config[CONF_MAC_ADDRESS])))
     cg.add(var.set_name_filter(config[CONF_NAME_FILTER]))
     cg.add(var.set_auto_probe(config[CONF_AUTO_PROBE]))
+    cg.add(var.set_repeat_probes(config[CONF_REPEAT_PROBES]))
     for probe in config[CONF_PROBES]:
         if CONF_TEXT in probe:
             cg.add(var.add_text_probe(probe[CONF_NAME], probe[CONF_TEXT], probe[CONF_DELAY_MS]))
