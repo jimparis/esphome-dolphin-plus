@@ -80,23 +80,23 @@ text_sensor:
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: pws_features
-    name: PWS Features Raw
+    name: PWS Features
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: temperature_raw
-    name: Temperature Raw
+    kind: system_status_summary
+    name: System Status
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: cycle_info_raw
-    name: Cycle Info Raw
+    kind: cycle_info_summary
+    name: Cycle Info
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: next_cycle_info_raw
-    name: Next Cycle Raw
+    kind: next_cycle_info_summary
+    name: Next Cycle
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: faults_raw
-    name: Faults Raw
+    kind: sm_summary
+    name: SM Summary
 
 sensor:
   - platform: dolphin_ble

@@ -755,28 +755,65 @@ uint32_t DolphinBle::bytes_to_u32_(const uint8_t *data, size_t len) {
 
 std::string DolphinBle::hex_string_(const uint8_t *data, size_t len) { return format_hex_(data, len); }
 
+std::string DolphinBle::summarize_printable_runs_(const uint8_t *data, size_t len, size_t max_runs,
+                                                  size_t max_run_len) {
+  std::string out;
+  std::string current;
+  size_t runs = 0;
+
+  auto flush = [&]() {
+    if (current.size() < 4 || runs >= max_runs) {
+      current.clear();
+      return;
+    }
+    if (!out.empty())
+      out += " | ";
+    if (current.size() > max_run_len)
+      current.resize(max_run_len);
+    out += current;
+    current.clear();
+    runs++;
+  };
+
+  for (size_t i = 0; i < len; i++) {
+    uint8_t c = data[i];
+    if (c >= 0x20 && c <= 0x7e) {
+      current.push_back(static_cast<char>(c));
+    } else {
+      flush();
+      if (runs >= max_runs)
+        break;
+    }
+  }
+  flush();
+
+  if (out.empty())
+    return "NA";
+  return out;
+}
+
 std::string DolphinBle::mode_to_string_(uint8_t mode) {
   switch (mode) {
     case 0x00:
       return "empty";
     case 0x01:
-      return "all";
+      return "regular";
     case 0x02:
-      return "short";
+      return "fast";
     case 0x03:
       return "cove";
     case 0x04:
-      return "floor";
+      return "floor_only";
     case 0x05:
-      return "water";
+      return "water_line";
     case 0x06:
-      return "ultra";
+      return "ultra_clean";
     case 0x07:
       return "spot";
     case 0x08:
-      return "wall";
+      return "wall_only";
     case 0x09:
-      return "tictac";
+      return "tic_tac";
     case 0x0a:
       return "custom";
     case 0x0b:
@@ -787,27 +824,27 @@ std::string DolphinBle::mode_to_string_(uint8_t mode) {
 }
 
 uint8_t DolphinBle::mode_from_string_(const std::string &mode) {
-  if (mode == "all" || mode == "regular")
+  if (mode == "regular" || mode == "all_surfaces" || mode == "all")
     return 0x01;
-  if (mode == "short" || mode == "fast")
+  if (mode == "fast" || mode == "short")
     return 0x02;
   if (mode == "cove")
     return 0x03;
-  if (mode == "floor" || mode == "floor_only")
+  if (mode == "floor_only" || mode == "floor")
     return 0x04;
-  if (mode == "water" || mode == "water_line")
+  if (mode == "water_line" || mode == "water")
     return 0x05;
-  if (mode == "ultra" || mode == "ultra_clean")
+  if (mode == "ultra_clean" || mode == "ultra")
     return 0x06;
   if (mode == "spot")
     return 0x07;
-  if (mode == "wall" || mode == "walls")
+  if (mode == "wall_only" || mode == "wall" || mode == "walls")
     return 0x08;
-  if (mode == "tictac")
+  if (mode == "tic_tac" || mode == "tictac")
     return 0x09;
   if (mode == "custom")
     return 0x0a;
-  if (mode == "pickup")
+  if (mode == "pick_up" || mode == "pickup")
     return 0x0b;
   if (mode == "empty")
     return 0x00;
@@ -850,19 +887,19 @@ std::string DolphinBle::robot_state_to_string_(uint8_t state) {
     case 0x01:
       return "mapping";
     case 0x02:
-      return "scanning";
+      return "cleaning";
     case 0x03:
       return "recovery";
     case 0x04:
       return "finished";
     case 0x05:
-      return "programming";
+      return "programing";
     case 0x06:
       return "fault";
     case 0x07:
-      return "notConnected";
+      return "not_connected";
     default:
-      return "NA";
+      return "unknown";
   }
 }
 
@@ -873,13 +910,13 @@ std::string DolphinBle::pws_state_to_string_(uint8_t state) {
     case 0x01:
       return "on";
     case 0x02:
-      return "holdWeekly";
+      return "hold_weekly";
     case 0x03:
-      return "holdDelay";
+      return "hold_delay";
     case 0x04:
-      return "programming";
+      return "programing";
     case 0x05:
-      return "onCleanMode";
+      return "on_clean_mode";
     case 0x06:
       return "sleep";
     default:
@@ -898,7 +935,7 @@ std::string DolphinBle::water_status_to_string_(uint8_t state) {
     case 0x03:
       return "error";
     case 0x04:
-      return "noPBaro";
+      return "no_p_baro";
     case 0x0f:
       return "loading";
     default:
@@ -937,31 +974,37 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
     return;
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
-  this->publish_text_(TEXT_SYSTEM_STATUS_RAW, hex_string_(payload, payload_len));
 
   this->publish_text_(TEXT_ROBOT_STATE, robot_state_to_string_(payload[0]));
   this->publish_text_(TEXT_PWS_STATE, pws_state_to_string_(payload[1]));
   this->publish_numeric_(NUMERIC_FILTER_STATE, payload[2]);
   this->publish_current_cleaning_mode_(payload[3]);
 
+  std::string status_summary = "robot=" + robot_state_to_string_(payload[0]);
+  status_summary += " pws=" + pws_state_to_string_(payload[1]);
+  status_summary += " filter=" + std::to_string(payload[2]);
+  status_summary += " mode=" + mode_to_string_(payload[3]);
+
   if (payload_len >= 14) {
     this->publish_numeric_(NUMERIC_CYCLE_TIME, read_u16_be_(payload + 4));
     this->publish_numeric_(NUMERIC_START_CYCLE_TIME, read_u32_be_(payload + 6));
     this->publish_numeric_(NUMERIC_CYCLE_START_UTC, read_u32_be_(payload + 10));
-    this->publish_text_(TEXT_CYCLE_INFO_RAW, hex_string_(payload + 4, 10));
+    std::string cycle_summary = "cycle=0x" + hex_string_(payload + 4, 2);
+    cycle_summary += " start=" + std::to_string(read_u32_be_(payload + 6));
+    cycle_summary += " utc=" + std::to_string(read_u32_be_(payload + 10));
+    this->publish_text_(TEXT_CYCLE_INFO_SUMMARY, cycle_summary);
   }
   if (payload_len >= 15) {
     this->publish_numeric_(NUMERIC_IS_SMART, payload[14] ? 1.0f : 0.0f);
+    status_summary += payload[14] ? " smart=true" : " smart=false";
   }
   if (payload_len >= 18) {
-    this->publish_text_(TEXT_NEXT_CYCLE_INFO_RAW, hex_string_(payload + 15, 3));
+    std::string next_cycle = "mode=" + mode_to_string_(payload[15]);
+    next_cycle += " duration=" + std::to_string(read_u16_be_(payload + 16));
+    next_cycle += " raw=" + hex_string_(payload + 15, 3);
+    this->publish_text_(TEXT_NEXT_CYCLE_INFO_SUMMARY, next_cycle);
   }
-  if (payload_len >= 30) {
-    this->publish_text_(TEXT_FAULTS_RAW, hex_string_(payload + 18, 12));
-  }
-  if (payload_len >= 53) {
-    this->publish_text_(TEXT_CLEANING_MODES_RAW, hex_string_(payload + 30, 23));
-  }
+  this->publish_text_(TEXT_SYSTEM_STATUS_SUMMARY, status_summary);
 }
 
 void DolphinBle::publish_temperature_from_frame_(const std::vector<uint8_t> &frame) {
@@ -1000,10 +1043,9 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
     return;
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
-  this->publish_text_(TEXT_SM_DATA_RAW, hex_string_(payload, payload_len));
-  std::string printable_runs = extract_printable_runs_(payload, payload_len);
-  if (!printable_runs.empty())
-    ESP_LOGI(TAG, "SM printable runs: %s", printable_runs.c_str());
+  std::string printable_runs = summarize_printable_runs_(payload, payload_len, 4, 32);
+  this->publish_text_(TEXT_SM_SUMMARY, printable_runs);
+  ESP_LOGI(TAG, "SM printable summary: %s", printable_runs.c_str());
 }
 
 void DolphinBleButton::press_action() {

@@ -25,7 +25,7 @@ namespace dolphin_ble {
 class DolphinBle : public Component {
  public:
   static constexpr size_t NUM_NUMERIC_SENSORS = 16;
-  static constexpr size_t NUM_TEXT_SENSORS = 13;
+  static constexpr size_t NUM_TEXT_SENSORS = 17;
 
   void setup() override;
   void loop() override;
@@ -85,6 +85,10 @@ class DolphinBle : public Component {
     TEXT_NEXT_CYCLE_INFO_RAW = 10,
     TEXT_FAULTS_RAW = 11,
     TEXT_CLEANING_MODES_RAW = 12,
+    TEXT_SYSTEM_STATUS_SUMMARY = 13,
+    TEXT_CYCLE_INFO_SUMMARY = 14,
+    TEXT_NEXT_CYCLE_INFO_SUMMARY = 15,
+    TEXT_SM_SUMMARY = 16,
   };
 
   enum ManualDriveButtonKind : uint8_t {
@@ -147,6 +151,8 @@ class DolphinBle : public Component {
   static std::string pws_state_to_string_(uint8_t state);
   static std::string water_status_to_string_(uint8_t state);
   static std::string hex_string_(const uint8_t *data, size_t len);
+  static std::string summarize_printable_runs_(const uint8_t *data, size_t len, size_t max_runs,
+                                               size_t max_run_len);
 
   void publish_numeric_(uint8_t kind, float value);
   void publish_text_(uint8_t kind, const std::string &value);

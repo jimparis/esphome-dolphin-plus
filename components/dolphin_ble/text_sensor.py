@@ -22,6 +22,10 @@ KINDS = {
     "next_cycle_info_raw": 10,
     "faults_raw": 11,
     "cleaning_modes_raw": 12,
+    "system_status_summary": 13,
+    "cycle_info_summary": 14,
+    "next_cycle_info_summary": 15,
+    "sm_summary": 16,
 }
 
 CONFIG_SCHEMA = text_sensor.text_sensor_schema().extend(
