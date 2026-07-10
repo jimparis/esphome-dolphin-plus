@@ -906,11 +906,27 @@ void DolphinBle::publish_pws_features_from_frame_(const std::vector<uint8_t> &fr
   if (payload_len < 3)
     return;
 
+  // LSB-first bit string mapping of payload[2]:
+  // bit 0: Network Sensing (WiFi support)
+  // bit 1: In-Water capability
+  // bit 2: Cellular support
+  // bit 3: OTA support
+  // bit 4: PCS support
+  uint8_t bits = payload[2];
+  bool network_sensing = (bits & 0x01) != 0;
+  this->in_water_capable_ = (bits & 0x02) != 0;
+  bool cellular = (bits & 0x04) != 0;
+  bool ota = (bits & 0x08) != 0;
+  bool pcs = (bits & 0x10) != 0;
+
   this->in_water_capability_known_ = true;
-  this->in_water_capable_ = (payload[1] & 0x01) != 0;
-  std::string summary = "network_sensing=" + std::string((payload[0] & 0x01) ? "true" : "false");
+
+  std::string summary = "network_sensing=" + std::string(network_sensing ? "true" : "false");
   summary += " in_water=" + std::string(this->in_water_capable_ ? "true" : "false");
-  summary += " cellular=" + std::string((payload[2] & 0x01) ? "true" : "false");
+  summary += " cellular=" + std::string(cellular ? "true" : "false");
+  summary += " ota=" + std::string(ota ? "true" : "false");
+  summary += " pcs=" + std::string(pcs ? "true" : "false");
+
   this->publish_text_(TEXT_PWS_FEATURES, summary);
   ESP_LOGI(TAG, "PWS features: %s", summary.c_str());
 }

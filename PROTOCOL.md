@@ -280,6 +280,17 @@ Checks status and captures troubleshooting errors during Wi-Fi/Cloud association
 
 Device parameters, diagnostics, and sensors are requested as structured blocks.
 
+### Power Supply Features (`pws_features`)
+- **Opcode**: `1a`, **Destination**: `FFFA`, **Request Payload**: None
+- **Envelope Request**: `03:ab03fffa1a000002c1`
+- **Response Layout (3 Bytes payload data)**:
+  Parsed as a reversed bit string from the payload hex array. For a standard 3-byte payload, the feature bits are mapped on the last byte `payload[2]`:
+  - **Bit 0**: `networkSensing` (Wi-Fi connectivity support).
+  - **Bit 1**: `inWat` (In-Water sensor / capability).
+  - **Bit 2**: `cellular` (Cellular modem support).
+  - **Bit 3**: `OTA` (Over-the-Air update support).
+  - **Bit 4**: `PSC` (PCS support).
+
 ### PWS Configuration Block (`get_sm_data`)
 - **Opcode**: `02`, **Destination**: `FFFD`, **Request Payload**: `02 00 ff`
 - **Envelope Request**: `03:ab03fffd0200030200ff03b0`
