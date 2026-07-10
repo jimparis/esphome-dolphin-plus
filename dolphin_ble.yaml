@@ -39,24 +39,6 @@ dolphin_ble:
   id: dolphin_bridge
   mac_address: !secret dolphin_mac
   name_filter: !secret dolphin_name_filter
-  auto_probe: true
-  repeat_probes: true
-  probes:
-    - name: pws_features
-      text: "03:ab03fffa1a000002c1"
-      delay_ms: 5000
-    - name: system_status
-      text: "03:ab03fff807000002ac"
-      delay_ms: 1500
-    - name: temperature
-      text: "03:ab03fff809000002ae"
-      delay_ms: 1500
-    - name: get_mu_data
-      text: "03:ab03fffd0100030100ff03ae"
-      delay_ms: 2000
-    - name: get_sm_data
-      text: "03:ab03fffd0200030200ff03b0"
-      delay_ms: 2000
 
 text_sensor:
   - platform: dolphin_ble
@@ -81,30 +63,6 @@ text_sensor:
     name: PWS Features
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: system_status_summary
-    name: System Status
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: cycle_info_summary
-    name: Cycle Info
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: next_cycle_info_summary
-    name: Next Cycle
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: sm_summary
-    name: SM Summary
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: faults_summary
-    name: Faults
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: cleaning_modes_summary
-    name: Cleaning Modes
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
     kind: filter_status
     name: Filter Status
   - platform: dolphin_ble
@@ -115,84 +73,61 @@ text_sensor:
     dolphin_ble_id: dolphin_bridge
     kind: quick_features
     name: Quick Features
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_sw_version
+    name: MU Software Version
 
 sensor:
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: filter_state
-    name: Filter State
+    name: Filter Clog Level
+    unit_of_measurement: "%"
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: is_smart
-    name: Is Smart
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: cycle_time
-    name: Cycle Time
+    name: Smart Mode Active
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: cycle_duration
     name: Configured Cycle Duration
+    unit_of_measurement: "s"
+    device_class: duration
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: cycle_time_remaining
     name: Cycle Time Remaining
+    unit_of_measurement: "s"
+    device_class: duration
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: temperature
-    name: Temperature
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: temperature_timestamp
-    name: Temperature Timestamp
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: measuring
-    name: Measuring
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: reading_during_cycle
-    name: Reading During Cycle
+    name: Water Temperature
+    unit_of_measurement: "°C"
+    device_class: temperature
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: robot_type
-    name: Robot Type
+    name: Robot Type ID
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: turn_on_count
-    name: Turn On Count
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: mu_sw_version_major
-    name: MU SW Major
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: mu_sw_version_minor
-    name: MU SW Minor
+    name: Total Boot Count
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: mu_flash_write_counter
     name: MU Flash Write Counter
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: mu_cycle_time
-    name: MU Cycle Time
+    kind: mu_pcb_runtime
+    name: MU PCB Runtime
+    unit_of_measurement: "h"
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: mu_pcb_hours
-    name: MU PCB Hours
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: mu_pcb_minutes
-    name: MU PCB Minutes
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: mu_impeller_hours
-    name: MU Impeller Hours
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: mu_impeller_minutes
-    name: MU Impeller Minutes
+    kind: mu_impeller_runtime
+    name: MU Impeller Runtime
+    unit_of_measurement: "h"
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: mu_not_completed_cycles
@@ -204,7 +139,7 @@ sensor:
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: sm_timezone
-    name: SM Timezone
+    name: SM Timezone Offset
 
 button:
   - platform: dolphin_ble
@@ -219,18 +154,6 @@ button:
     dolphin_ble_id: dolphin_bridge
     kind: pickup_mode
     name: Pickup Mode
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: refresh_status
-    name: Refresh Status
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: manual_drive
-    name: Send Manual Drive
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: quit_manual_drive
-    name: Quit Manual Drive
 
 select:
   - platform: dolphin_ble

@@ -25,8 +25,8 @@ namespace dolphin_ble {
 
 class DolphinBle : public Component {
  public:
-  static constexpr size_t NUM_NUMERIC_SENSORS = 23;
-  static constexpr size_t NUM_TEXT_SENSORS = 22;
+  static constexpr size_t NUM_NUMERIC_SENSORS = 13;
+  static constexpr size_t NUM_TEXT_SENSORS = 9;
 
   void setup() override;
   void loop() override;
@@ -34,10 +34,6 @@ class DolphinBle : public Component {
 
   void set_mac_address(const std::string &mac) { this->mac_address_ = mac; }
   void set_name_filter(const std::string &name) { this->name_filter_ = name; }
-  void set_auto_probe(bool auto_probe) { this->auto_probe_ = auto_probe; }
-  void set_repeat_probes(bool repeat_probes) { this->repeat_probes_ = repeat_probes; }
-  void add_probe(const std::string &name, const std::string &packet_hex, uint32_t delay_ms);
-  void add_text_probe(const std::string &name, const std::string &packet_text, uint32_t delay_ms);
 
   void set_numeric_sensor(uint8_t kind, sensor::Sensor *sensor);
   void set_text_sensor(uint8_t kind, text_sensor::TextSensor *sensor);
@@ -47,37 +43,25 @@ class DolphinBle : public Component {
   void press_start_cleaning();
   void press_stop_cleaning();
   void press_pickup_mode();
-  void press_manual_drive();
   void press_quit_manual_drive();
   void set_cleaning_mode_option(const std::string &option);
   void set_manual_drive_direction_option(const std::string &option);
-  void restart_probes();
 
  protected:
   enum NumericSensorKind : uint8_t {
-    NUMERIC_BATTERY_PERCENTAGE = 0,
-    NUMERIC_FILTER_STATE = 1,
-    NUMERIC_IS_SMART = 2,
-    NUMERIC_CYCLE_TIME = 3,
-    NUMERIC_CYCLE_DURATION = 4,
-    NUMERIC_CYCLE_TIME_REMAINING = 5,
-    NUMERIC_TEMPERATURE = 6,
-    NUMERIC_TEMPERATURE_TIMESTAMP = 7,
-    NUMERIC_MEASURING = 8,
-    NUMERIC_READING_DURING_CYCLE = 9,
-    NUMERIC_ROBOT_TYPE = 10,
-    NUMERIC_TURN_ON_COUNT = 11,
-    NUMERIC_MU_SW_VERSION_MAJOR = 12,
-    NUMERIC_MU_SW_VERSION_MINOR = 13,
-    NUMERIC_MU_FLASH_WRITE_COUNTER = 14,
-    NUMERIC_MU_CYCLE_TIME = 15,
-    NUMERIC_MU_PCB_HOURS = 16,
-    NUMERIC_MU_PCB_MINUTES = 17,
-    NUMERIC_MU_IMPELLER_HOURS = 18,
-    NUMERIC_MU_IMPELLER_MINUTES = 19,
-    NUMERIC_MU_NOT_COMPLETED_CYCLES = 20,
-    NUMERIC_MU_CLIMB_PERIOD = 21,
-    NUMERIC_SM_TIMEZONE = 22,
+    NUMERIC_FILTER_STATE = 0,
+    NUMERIC_IS_SMART = 1,
+    NUMERIC_CYCLE_DURATION = 2,
+    NUMERIC_CYCLE_TIME_REMAINING = 3,
+    NUMERIC_TEMPERATURE = 4,
+    NUMERIC_ROBOT_TYPE = 5,
+    NUMERIC_TURN_ON_COUNT = 6,
+    NUMERIC_MU_FLASH_WRITE_COUNTER = 7,
+    NUMERIC_MU_PCB_RUNTIME = 8,
+    NUMERIC_MU_IMPELLER_RUNTIME = 9,
+    NUMERIC_MU_NOT_COMPLETED_CYCLES = 10,
+    NUMERIC_MU_CLIMB_PERIOD = 11,
+    NUMERIC_SM_TIMEZONE = 12,
   };
 
   enum TextSensorKind : uint8_t {
@@ -86,35 +70,10 @@ class DolphinBle : public Component {
     TEXT_CLEANING_MODE = 2,
     TEXT_IN_WATER_STATUS = 3,
     TEXT_PWS_FEATURES = 4,
-    TEXT_SYSTEM_STATUS_RAW = 5,
-    TEXT_TEMPERATURE_RAW = 6,
-    TEXT_MU_DATA_RAW = 7,
-    TEXT_SM_DATA_RAW = 8,
-    TEXT_CYCLE_INFO_RAW = 9,
-    TEXT_NEXT_CYCLE_INFO_RAW = 10,
-    TEXT_FAULTS_RAW = 11,
-    TEXT_CLEANING_MODES_RAW = 12,
-    TEXT_SYSTEM_STATUS_SUMMARY = 13,
-    TEXT_CYCLE_INFO_SUMMARY = 14,
-    TEXT_NEXT_CYCLE_INFO_SUMMARY = 15,
-    TEXT_SM_SUMMARY = 16,
-    TEXT_FAULTS_SUMMARY = 17,
-    TEXT_CLEANING_MODES_SUMMARY = 18,
-    TEXT_FILTER_STATUS = 19,
-    TEXT_WIFI_SSID = 20,
-    TEXT_QUICK_FEATURES = 21,
-  };
-
-  enum ManualDriveButtonKind : uint8_t {
-    MANUAL_DRIVE_SEND = 4,
-    MANUAL_DRIVE_QUIT = 5,
-  };
-
-  struct Probe {
-    std::string name;
-    std::vector<uint8_t> packet;
-    bool text{false};
-    uint32_t delay_ms{1500};
+    TEXT_FILTER_STATUS = 5,
+    TEXT_WIFI_SSID = 6,
+    TEXT_QUICK_FEATURES = 7,
+    TEXT_MU_SW_VERSION = 8,
   };
 
   static DolphinBle *instance_;
@@ -135,8 +94,8 @@ class DolphinBle : public Component {
   void create_local_server_(esp_gatt_if_t gatts_if);
   void discover_remote_characteristic_();
   void enable_remote_notifications_();
-  void maybe_send_probe_();
-  void send_local_notification_(const Probe &probe);
+  void handle_polling_();
+  void send_local_notification_text_(const std::string &text);
   void send_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
                            size_t payload_len, const char *name);
   void send_command_frame_(uint8_t opcode, uint16_t destination, std::initializer_list<uint8_t> payload,
@@ -151,12 +110,10 @@ class DolphinBle : public Component {
   static bool parse_hex_(const std::string &hex, std::vector<uint8_t> *out);
   static std::string format_hex_(const uint8_t *data, size_t len);
   static std::string format_ascii_(const uint8_t *data, size_t len);
-  static std::string extract_printable_runs_(const uint8_t *data, size_t len);
   static bool is_text_frame_chunk_(const uint8_t *data, size_t len);
   static uint16_t read_u16_be_(const uint8_t *data);
   static uint32_t read_u32_be_(const uint8_t *data);
   static uint64_t read_u64_be_(const uint8_t *data, size_t len);
-  static uint32_t bytes_to_u32_(const uint8_t *data, size_t len);
   static std::string mode_to_string_(uint8_t mode);
   static uint8_t mode_from_string_(const std::string &mode);
   static std::string direction_to_string_(uint8_t direction);
@@ -194,8 +151,6 @@ class DolphinBle : public Component {
   bool notify_registered_{false};
   bool cccd_written_{false};
   bool mtu_done_{false};
-  bool auto_probe_{false};
-  bool repeat_probes_{false};
   bool in_water_capability_known_{false};
   bool in_water_capable_{false};
 
@@ -214,10 +169,11 @@ class DolphinBle : public Component {
   uint16_t remote_char_handle_{0};
   uint16_t remote_cccd_handle_{0};
 
-  std::vector<Probe> probes_;
-  size_t next_probe_index_{0};
-  uint32_t last_probe_ms_{0};
-  bool probes_started_{false};
+  uint8_t metadata_step_{0};
+  uint32_t last_metadata_poll_{0};
+  uint32_t last_status_poll_{0};
+  uint32_t last_temp_poll_{0};
+
   std::string rx_text_buffer_;
   std::string tx_text_buffer_;
 

@@ -6,7 +6,6 @@
 #include <cstring>
 
 #include "esphome/core/log.h"
-
 #include "esp_bt_main.h"
 
 namespace esphome {
@@ -45,10 +44,28 @@ void DolphinBle::setup() {
   }
 }
 
+void DolphinBle::set_numeric_sensor(uint8_t kind, sensor::Sensor *sensor) {
+  if (kind < this->numeric_sensors_.size())
+    this->numeric_sensors_[kind] = sensor;
+}
+
+void DolphinBle::set_text_sensor(uint8_t kind, text_sensor::TextSensor *sensor) {
+  if (kind < this->text_sensors_.size())
+    this->text_sensors_[kind] = sensor;
+}
+
+void DolphinBle::set_cleaning_mode_select(select::Select *select) {
+  this->cleaning_mode_select_ = select;
+}
+
+void DolphinBle::set_manual_drive_direction_select(select::Select *select) {
+  this->manual_drive_direction_select_ = select;
+}
+
 void DolphinBle::loop() {
   this->maybe_start_gatt_();
   this->maybe_connect_();
-  this->maybe_send_probe_();
+  this->handle_polling_();
 }
 
 float DolphinBle::get_setup_priority() const { return setup_priority::DATA; }
@@ -58,8 +75,6 @@ void DolphinBle::maybe_start_gatt_() {
     return;
   if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED)
     return;
-
-  ESP_LOGI(TAG, "Bluedroid is enabled; registering Dolphin GATT client/server");
   this->gatt_setup_started_ = true;
 
   esp_err_t err = esp_ble_gatts_register_callback(DolphinBle::gatts_event_handler_);
@@ -242,9 +257,10 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
       this->notify_registered_ = false;
       this->cccd_written_ = false;
       this->mtu_done_ = false;
-      this->probes_started_ = false;
-      this->next_probe_index_ = 0;
-      this->last_probe_ms_ = 0;
+      this->metadata_step_ = 0;
+      this->last_metadata_poll_ = 0;
+      this->last_status_poll_ = 0;
+      this->last_temp_poll_ = 0;
       this->rx_text_buffer_.clear();
       this->remote_service_start_ = 0;
       this->remote_service_end_ = 0;
@@ -258,82 +274,243 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
   }
 }
 
-void DolphinBle::add_probe(const std::string &name, const std::string &packet_hex, uint32_t delay_ms) {
-  Probe probe;
-  probe.name = name;
-  probe.delay_ms = delay_ms;
-  if (!parse_hex_(packet_hex, &probe.packet)) {
-    ESP_LOGE(TAG, "Invalid probe packet hex for %s: %s", name.c_str(), packet_hex.c_str());
+void DolphinBle::handle_polling_() {
+  if (!this->gatts_peer_connected_ || !this->local_notify_enabled_ || !this->mtu_done_) {
+    this->metadata_step_ = 0;
+    this->last_status_poll_ = 0;
+    this->last_temp_poll_ = 0;
     return;
   }
-  this->probes_.push_back(probe);
+
+  uint32_t now = millis();
+
+  // 1. Connection setup: Poll static configuration blocks once
+  if (this->metadata_step_ < 4) {
+    if (now - this->last_metadata_poll_ >= 2000) {
+      if (this->metadata_step_ == 0) {
+        ESP_LOGI(TAG, "Polling PWS capability features...");
+        this->send_local_notification_text_("03:ab03fffa1a000002c1");
+        this->metadata_step_ = 1;
+      } else if (this->metadata_step_ == 1) {
+        ESP_LOGI(TAG, "Polling Motor Unit (MU) parameter data...");
+        this->send_local_notification_text_("03:ab03fffd0100030100ff03ae");
+        this->metadata_step_ = 2;
+      } else if (this->metadata_step_ == 2) {
+        ESP_LOGI(TAG, "Polling Power Supply (SM) parameter data...");
+        this->send_local_notification_text_("03:ab03fffd0200030200ff03b0");
+        this->metadata_step_ = 3;
+      } else if (this->metadata_step_ == 3) {
+        ESP_LOGI(TAG, "Robot metadata polling initialization finished.");
+        this->metadata_step_ = 4;
+      }
+      this->last_metadata_poll_ = now;
+    }
+    return; // Wait until all static metadata is read before starting periodic poll
+  }
+
+  // 2. Poll real-time system status every 2 seconds
+  if (now - this->last_status_poll_ >= 2000) {
+    this->send_local_notification_text_("03:ab03fff807000002ac");
+    this->last_status_poll_ = now;
+  }
+
+  // 3. Poll water temperature sensor every 30 seconds (if capability is supported)
+  if (this->in_water_capable_) {
+    if (now - this->last_temp_poll_ >= 30000) {
+      this->send_local_notification_text_("03:ab03fff809000002ae");
+      this->last_temp_poll_ = now;
+    }
+  }
 }
 
-void DolphinBle::add_text_probe(const std::string &name, const std::string &packet_text, uint32_t delay_ms) {
-  Probe probe;
-  probe.name = name;
-  probe.text = true;
-  probe.delay_ms = delay_ms;
-  probe.packet.assign(packet_text.begin(), packet_text.end());
-  this->probes_.push_back(probe);
+void DolphinBle::send_local_notification_text_(const std::string &text) {
+  if (this->gatts_if_ == ESP_GATT_IF_NONE || this->gatts_char_handle_ == 0 ||
+      !this->gatts_peer_connected_ || !this->local_notify_enabled_) {
+    return;
+  }
+  esp_err_t err = esp_ble_gatts_send_indicate(
+      this->gatts_if_, this->gatts_conn_id_, this->gatts_char_handle_, text.size(),
+      reinterpret_cast<uint8_t *>(const_cast<char *>(text.data())), false);
+  if (err != ESP_OK)
+    ESP_LOGE(TAG, "Local notify for raw text failed: %s", esp_err_to_name(err));
 }
 
-void DolphinBle::set_numeric_sensor(uint8_t kind, sensor::Sensor *sensor) {
-  if (kind < this->numeric_sensors_.size())
-    this->numeric_sensors_[kind] = sensor;
+void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
+                                     size_t payload_len, const char *name) {
+  std::vector<uint8_t> frame;
+  frame.reserve(7 + payload_len + 2);
+  frame.push_back(0xab);
+  frame.push_back(0x03);
+  frame.push_back(static_cast<uint8_t>((destination >> 8) & 0xff));
+  frame.push_back(static_cast<uint8_t>(destination & 0xff));
+  frame.push_back(opcode);
+  frame.push_back(static_cast<uint8_t>((payload_len >> 8) & 0xff));
+  frame.push_back(static_cast<uint8_t>(payload_len & 0xff));
+  if (payload != nullptr && payload_len > 0)
+    frame.insert(frame.end(), payload, payload + payload_len);
+
+  uint16_t checksum = 0;
+  for (uint8_t byte : frame)
+    checksum = static_cast<uint16_t>(checksum + byte);
+  frame.push_back(static_cast<uint8_t>((checksum >> 8) & 0xff));
+  frame.push_back(static_cast<uint8_t>(checksum & 0xff));
+
+  std::string text = "03:";
+  text += format_hex_(frame.data(), frame.size());
+  this->tx_text_buffer_ = text;
+  ESP_LOGI(TAG, "Sending command %s opcode=0x%02x dest=0x%04x payload=%s text=\"%s\"", name, opcode,
+           destination, payload_len ? format_hex_(payload, payload_len).c_str() : "",
+           text.c_str());
+
+  this->send_local_notification_text_(text);
 }
 
-void DolphinBle::set_text_sensor(uint8_t kind, text_sensor::TextSensor *sensor) {
-  if (kind < this->text_sensors_.size())
-    this->text_sensors_[kind] = sensor;
+void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination,
+                                     std::initializer_list<uint8_t> payload, const char *name) {
+  std::vector<uint8_t> data(payload.begin(), payload.end());
+  this->send_command_frame_(opcode, destination, data.data(), data.size(), name);
 }
 
-void DolphinBle::set_cleaning_mode_select(select::Select *select) { this->cleaning_mode_select_ = select; }
+void DolphinBle::handle_robot_notification_(const uint8_t *data, size_t len) {
+  std::string text = format_ascii_(data, len);
+  ESP_LOGV(TAG, "Robot notification chunk len=%u text=\"%s\"", static_cast<unsigned>(len), text.c_str());
 
-void DolphinBle::set_manual_drive_direction_select(select::Select *select) {
-  this->manual_drive_direction_select_ = select;
+  if (!is_text_frame_chunk_(data, len))
+    return;
+
+  std::string chunk(reinterpret_cast<const char *>(data), len);
+  if (this->rx_text_buffer_.empty()) {
+    size_t colon = chunk.find(':');
+    if (colon == std::string::npos)
+      return;
+    this->rx_text_buffer_ = chunk.substr(colon);
+  } else {
+    this->rx_text_buffer_ += chunk;
+  }
+
+  this->maybe_log_complete_text_frame_();
 }
 
-void DolphinBle::set_manual_drive_speed(float speed) { this->selected_manual_drive_speed_ = speed; }
+void DolphinBle::maybe_log_complete_text_frame_() {
+  while (!this->rx_text_buffer_.empty()) {
+    size_t colon = this->rx_text_buffer_.find(':');
+    if (colon == std::string::npos) {
+      this->rx_text_buffer_.clear();
+      return;
+    }
+    if (colon > 0)
+      this->rx_text_buffer_.erase(0, colon);
 
-void DolphinBle::press_start_cleaning() { this->send_command_frame_(0x06, 0xFFF8, {}, "start_up_dolphin"); }
+    const std::string hex = this->rx_text_buffer_.substr(1);
+    if (hex.size() < 14)
+      return;
 
-void DolphinBle::press_stop_cleaning() { this->send_command_frame_(0x05, 0xFFF8, {}, "shutdown_dolphin"); }
+    std::vector<uint8_t> header;
+    if (!parse_hex_(hex.substr(0, 14), &header) || header.size() < 7) {
+      ESP_LOGW(TAG, "Dropping malformed robot text frame prefix: %s", this->rx_text_buffer_.c_str());
+      this->rx_text_buffer_.clear();
+      return;
+    }
 
-void DolphinBle::press_pickup_mode() {
-  this->publish_current_cleaning_mode_(0x0b);
-  this->send_command_frame_(0x03, 0xFFE9, {0x0b}, "start_pickup_mode");
+    uint16_t payload_len = (static_cast<uint16_t>(header[5]) << 8) | header[6];
+    size_t expected_hex_len = (7 + payload_len + 2) * 2;
+    size_t expected_text_len = 1 + expected_hex_len;
+    if (this->rx_text_buffer_.size() < expected_text_len)
+      return;
+
+    std::string frame_hex = this->rx_text_buffer_.substr(1, expected_hex_len);
+    std::vector<uint8_t> frame;
+    if (!parse_hex_(frame_hex, &frame) || frame.size() != 7 + payload_len + 2) {
+      ESP_LOGW(TAG, "Dropping malformed complete robot text frame");
+      this->rx_text_buffer_.erase(0, expected_text_len);
+      continue;
+    }
+
+    uint16_t calculated = 0;
+    for (size_t i = 0; i + 2 < frame.size(); i++)
+      calculated = static_cast<uint16_t>(calculated + frame[i]);
+    uint16_t received =
+        (static_cast<uint16_t>(frame[frame.size() - 2]) << 8) | frame[frame.size() - 1];
+    uint16_t dest = (static_cast<uint16_t>(frame[2]) << 8) | frame[3];
+
+    ESP_LOGI(TAG,
+             "Robot text frame src=0x%02x dest=0x%04x opcode=0x%02x payload_len=%u checksum=%s",
+             frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad");
+
+    if (calculated == received)
+      this->parse_robot_text_frame_(frame);
+
+    this->rx_text_buffer_.erase(0, expected_text_len);
+  }
 }
 
-void DolphinBle::press_manual_drive() {
-  uint8_t direction = this->selected_manual_drive_direction_;
-  uint8_t speed = static_cast<uint8_t>(std::clamp(this->selected_manual_drive_speed_, 0.0f, 100.0f));
-  this->send_command_frame_(0x03, 0xFFF7, {direction, speed}, "manual_drive");
+void DolphinBle::parse_robot_text_frame_(const std::vector<uint8_t> &frame) {
+  if (frame.size() < 9)
+    return;
+  uint16_t dest = read_u16_be_(&frame[2]);
+  uint8_t opcode = frame[4];
+  const uint8_t *payload = &frame[7];
+  size_t payload_len = frame.size() - 9;
+
+  if (dest == 0xFFFA && opcode == 0x1a) {
+    this->publish_pws_features_from_frame_(frame);
+    return;
+  }
+  if (dest == 0xFFF8 && opcode == 0x07) {
+    this->publish_status_from_frame_(frame);
+    return;
+  }
+  if (dest == 0xFFF8 && opcode == 0x09) {
+    this->publish_temperature_from_frame_(frame);
+    return;
+  }
+  if (dest == 0xFFFD && opcode == 0x01) {
+    this->publish_mu_data_from_frame_(frame);
+    return;
+  }
+  if (dest == 0xFFFD && opcode == 0x02) {
+    this->publish_sm_data_from_frame_(frame);
+    return;
+  }
+
+  ESP_LOGD(TAG, "Unrecognized robot response dest=0x%04x opcode=0x%02x payload_len=%u", dest, opcode,
+           static_cast<unsigned>(payload_len));
+  (void) payload;
 }
 
-void DolphinBle::press_quit_manual_drive() {
-  this->send_command_frame_(0x04, 0xFFF7, {}, "quit_manual_drive");
+void DolphinBle::log_uuid_(const char *prefix, const esp_bt_uuid_t &uuid) {
+  if (uuid.len == ESP_UUID_LEN_16) {
+    ESP_LOGD(TAG, "%s UUID16 0x%04x", prefix, uuid.uuid.uuid16);
+  } else if (uuid.len == ESP_UUID_LEN_32) {
+    ESP_LOGD(TAG, "%s UUID32 0x%08" PRIx32, prefix, uuid.uuid.uuid32);
+  } else if (uuid.len == ESP_UUID_LEN_128) {
+    ESP_LOGD(TAG, "%s UUID128 %s", prefix, format_hex_(uuid.uuid.uuid128, ESP_UUID_LEN_128).c_str());
+  }
 }
 
-void DolphinBle::set_cleaning_mode_option(const std::string &option) {
-  uint8_t mode = mode_from_string_(option);
-  this->selected_cleaning_mode_ = mode;
-  if (this->cleaning_mode_select_ != nullptr)
-    this->cleaning_mode_select_->publish_state(mode_to_string_(mode));
-  this->send_command_frame_(0x03, 0xFFE9, {mode}, "set_cleaning_mode");
+bool DolphinBle::uuid_from_string_(const char *uuid, esp_bt_uuid_t *out) {
+  unsigned int b[16];
+  int matched = std::sscanf(uuid,
+                            "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-"
+                            "%02x%02x%02x%02x%02x%02x",
+                            &b[0], &b[1], &b[2], &b[3], &b[4], &b[5], &b[6], &b[7], &b[8], &b[9],
+                            &b[10], &b[11], &b[12], &b[13], &b[14], &b[15]);
+  if (matched != 16)
+    return false;
+  out->len = ESP_UUID_LEN_128;
+  for (int i = 0; i < 16; i++)
+    out->uuid.uuid128[i] = static_cast<uint8_t>(b[15 - i]);
+  return true;
 }
 
-void DolphinBle::set_manual_drive_direction_option(const std::string &option) {
-  uint8_t direction = direction_from_string_(option);
-  this->selected_manual_drive_direction_ = direction;
-  if (this->manual_drive_direction_select_ != nullptr)
-    this->manual_drive_direction_select_->publish_state(direction_to_string_(direction));
-}
-
-void DolphinBle::restart_probes() {
-  this->next_probe_index_ = 0;
-  this->last_probe_ms_ = 0;
-  this->probes_started_ = false;
+bool DolphinBle::uuid_equal_(const esp_bt_uuid_t &a, const esp_bt_uuid_t &b) {
+  if (a.len != b.len)
+    return false;
+  if (a.len == ESP_UUID_LEN_16)
+    return a.uuid.uuid16 == b.uuid.uuid16;
+  if (a.len == ESP_UUID_LEN_32)
+    return a.uuid.uuid32 == b.uuid.uuid32;
+  return std::memcmp(a.uuid.uuid128, b.uuid.uuid128, ESP_UUID_LEN_128) == 0;
 }
 
 bool DolphinBle::parse_mac_() {
@@ -423,241 +600,6 @@ void DolphinBle::enable_remote_notifications_() {
                                  ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
 }
 
-void DolphinBle::maybe_send_probe_() {
-  if (!this->auto_probe_ || this->probes_.empty() || this->next_probe_index_ >= this->probes_.size())
-    return;
-  if (!this->gatts_peer_connected_ || !this->local_notify_enabled_ || !this->mtu_done_)
-    return;
-
-  uint32_t now = millis();
-  if (!this->probes_started_) {
-    this->probes_started_ = true;
-    this->last_probe_ms_ = now;
-    return;
-  }
-  if (now - this->last_probe_ms_ < this->probes_[this->next_probe_index_].delay_ms)
-    return;
-
-  const Probe &probe = this->probes_[this->next_probe_index_];
-  if (probe.name == "temperature" && this->in_water_capability_known_ && !this->in_water_capable_) {
-    ESP_LOGW(TAG, "Skipping temperature probe: power supply does not advertise in-water support");
-    this->last_probe_ms_ = now;
-    this->next_probe_index_++;
-    if (this->next_probe_index_ >= this->probes_.size() && this->repeat_probes_)
-      this->next_probe_index_ = 0;
-    return;
-  }
-
-  this->send_local_notification_(probe);
-  this->last_probe_ms_ = now;
-  this->next_probe_index_++;
-  if (this->next_probe_index_ >= this->probes_.size() && this->repeat_probes_) {
-    this->next_probe_index_ = 0;
-    ESP_LOGI(TAG, "Probe cycle complete; scheduling another status poll");
-  }
-}
-
-void DolphinBle::send_local_notification_(const Probe &probe) {
-  if (probe.packet.empty()) {
-    ESP_LOGW(TAG, "Skipping empty probe %s", probe.name.c_str());
-    return;
-  }
-  ESP_LOGI(TAG, "Sending probe %s len=%u data=%s text=\"%s\"", probe.name.c_str(),
-           static_cast<unsigned>(probe.packet.size()),
-           format_hex_(probe.packet.data(), probe.packet.size()).c_str(),
-           probe.text ? format_ascii_(probe.packet.data(), probe.packet.size()).c_str() : "");
-  esp_err_t err = esp_ble_gatts_send_indicate(this->gatts_if_, this->gatts_conn_id_,
-                                              this->gatts_char_handle_, probe.packet.size(),
-                                              const_cast<uint8_t *>(probe.packet.data()), false);
-  if (err != ESP_OK)
-    ESP_LOGE(TAG, "Probe %s notification failed: %s", probe.name.c_str(), esp_err_to_name(err));
-}
-
-void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
-                                     size_t payload_len, const char *name) {
-  std::vector<uint8_t> frame;
-  frame.reserve(7 + payload_len + 2);
-  frame.push_back(0xab);
-  frame.push_back(0x03);
-  frame.push_back(static_cast<uint8_t>((destination >> 8) & 0xff));
-  frame.push_back(static_cast<uint8_t>(destination & 0xff));
-  frame.push_back(opcode);
-  frame.push_back(static_cast<uint8_t>((payload_len >> 8) & 0xff));
-  frame.push_back(static_cast<uint8_t>(payload_len & 0xff));
-  if (payload != nullptr && payload_len > 0)
-    frame.insert(frame.end(), payload, payload + payload_len);
-
-  uint16_t checksum = 0;
-  for (uint8_t byte : frame)
-    checksum = static_cast<uint16_t>(checksum + byte);
-  frame.push_back(static_cast<uint8_t>((checksum >> 8) & 0xff));
-  frame.push_back(static_cast<uint8_t>(checksum & 0xff));
-
-  std::string text = "03:";
-  text += format_hex_(frame.data(), frame.size());
-  this->tx_text_buffer_ = text;
-  ESP_LOGI(TAG, "Sending command %s opcode=0x%02x dest=0x%04x payload=%s text=\"%s\"", name, opcode,
-           destination, payload_len ? format_hex_(payload, payload_len).c_str() : "",
-           text.c_str());
-  esp_err_t err = esp_ble_gatts_send_indicate(this->gatts_if_, this->gatts_conn_id_,
-                                              this->gatts_char_handle_, text.size(),
-                                              reinterpret_cast<uint8_t *>(this->tx_text_buffer_.data()),
-                                              false);
-  if (err != ESP_OK)
-    ESP_LOGE(TAG, "Command %s notification failed: %s", name, esp_err_to_name(err));
-}
-
-void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination,
-                                     std::initializer_list<uint8_t> payload, const char *name) {
-  std::vector<uint8_t> data(payload.begin(), payload.end());
-  this->send_command_frame_(opcode, destination, data.data(), data.size(), name);
-}
-
-void DolphinBle::handle_robot_notification_(const uint8_t *data, size_t len) {
-  std::string text = format_ascii_(data, len);
-  ESP_LOGI(TAG, "Robot notification len=%u data=%s text=\"%s\"", static_cast<unsigned>(len),
-           format_hex_(data, len).c_str(), text.c_str());
-
-  if (!is_text_frame_chunk_(data, len))
-    return;
-
-  std::string chunk(reinterpret_cast<const char *>(data), len);
-  if (this->rx_text_buffer_.empty()) {
-    size_t colon = chunk.find(':');
-    if (colon == std::string::npos)
-      return;
-    this->rx_text_buffer_ = chunk.substr(colon);
-  } else {
-    this->rx_text_buffer_ += chunk;
-  }
-
-  this->maybe_log_complete_text_frame_();
-}
-
-void DolphinBle::maybe_log_complete_text_frame_() {
-  while (!this->rx_text_buffer_.empty()) {
-    size_t colon = this->rx_text_buffer_.find(':');
-    if (colon == std::string::npos) {
-      this->rx_text_buffer_.clear();
-      return;
-    }
-    if (colon > 0)
-      this->rx_text_buffer_.erase(0, colon);
-
-    const std::string hex = this->rx_text_buffer_.substr(1);
-    if (hex.size() < 14)
-      return;
-
-    std::vector<uint8_t> header;
-    if (!parse_hex_(hex.substr(0, 14), &header) || header.size() < 7) {
-      ESP_LOGW(TAG, "Dropping malformed robot text frame prefix: %s", this->rx_text_buffer_.c_str());
-      this->rx_text_buffer_.clear();
-      return;
-    }
-
-    uint16_t payload_len = (static_cast<uint16_t>(header[5]) << 8) | header[6];
-    size_t expected_hex_len = (7 + payload_len + 2) * 2;
-    size_t expected_text_len = 1 + expected_hex_len;
-    if (this->rx_text_buffer_.size() < expected_text_len)
-      return;
-
-    std::string frame_hex = this->rx_text_buffer_.substr(1, expected_hex_len);
-    std::vector<uint8_t> frame;
-    if (!parse_hex_(frame_hex, &frame) || frame.size() != 7 + payload_len + 2) {
-      ESP_LOGW(TAG, "Dropping malformed complete robot text frame");
-      this->rx_text_buffer_.erase(0, expected_text_len);
-      continue;
-    }
-
-    uint16_t calculated = 0;
-    for (size_t i = 0; i + 2 < frame.size(); i++)
-      calculated = static_cast<uint16_t>(calculated + frame[i]);
-    uint16_t received =
-        (static_cast<uint16_t>(frame[frame.size() - 2]) << 8) | frame[frame.size() - 1];
-    uint16_t dest = (static_cast<uint16_t>(frame[2]) << 8) | frame[3];
-
-    ESP_LOGI(TAG,
-             "Robot text frame src=0x%02x dest=0x%04x opcode=0x%02x payload_len=%u checksum=%s "
-             "frame=%s",
-             frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad",
-             frame_hex.c_str());
-
-    if (calculated == received)
-      this->parse_robot_text_frame_(frame);
-
-    this->rx_text_buffer_.erase(0, expected_text_len);
-  }
-}
-
-void DolphinBle::parse_robot_text_frame_(const std::vector<uint8_t> &frame) {
-  if (frame.size() < 9)
-    return;
-  uint16_t dest = read_u16_be_(&frame[2]);
-  uint8_t opcode = frame[4];
-  const uint8_t *payload = &frame[7];
-  size_t payload_len = frame.size() - 9;
-
-  if (dest == 0xFFFA && opcode == 0x1a) {
-    this->publish_pws_features_from_frame_(frame);
-    return;
-  }
-  if (dest == 0xFFF8 && opcode == 0x07) {
-    this->publish_status_from_frame_(frame);
-    return;
-  }
-  if (dest == 0xFFF8 && opcode == 0x09) {
-    this->publish_temperature_from_frame_(frame);
-    return;
-  }
-  if (dest == 0xFFFD && opcode == 0x01) {
-    this->publish_mu_data_from_frame_(frame);
-    return;
-  }
-  if (dest == 0xFFFD && opcode == 0x02) {
-    this->publish_sm_data_from_frame_(frame);
-    return;
-  }
-
-  ESP_LOGD(TAG, "Unrecognized robot response dest=0x%04x opcode=0x%02x payload_len=%u", dest, opcode,
-           static_cast<unsigned>(payload_len));
-  (void) payload;
-}
-
-void DolphinBle::log_uuid_(const char *prefix, const esp_bt_uuid_t &uuid) {
-  if (uuid.len == ESP_UUID_LEN_16) {
-    ESP_LOGD(TAG, "%s UUID16 0x%04x", prefix, uuid.uuid.uuid16);
-  } else if (uuid.len == ESP_UUID_LEN_32) {
-    ESP_LOGD(TAG, "%s UUID32 0x%08" PRIx32, prefix, uuid.uuid.uuid32);
-  } else if (uuid.len == ESP_UUID_LEN_128) {
-    ESP_LOGD(TAG, "%s UUID128 %s", prefix, format_hex_(uuid.uuid.uuid128, ESP_UUID_LEN_128).c_str());
-  }
-}
-
-bool DolphinBle::uuid_from_string_(const char *uuid, esp_bt_uuid_t *out) {
-  unsigned int b[16];
-  int matched = std::sscanf(uuid,
-                            "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-"
-                            "%02x%02x%02x%02x%02x%02x",
-                            &b[0], &b[1], &b[2], &b[3], &b[4], &b[5], &b[6], &b[7], &b[8], &b[9],
-                            &b[10], &b[11], &b[12], &b[13], &b[14], &b[15]);
-  if (matched != 16)
-    return false;
-  out->len = ESP_UUID_LEN_128;
-  for (int i = 0; i < 16; i++)
-    out->uuid.uuid128[i] = static_cast<uint8_t>(b[15 - i]);
-  return true;
-}
-
-bool DolphinBle::uuid_equal_(const esp_bt_uuid_t &a, const esp_bt_uuid_t &b) {
-  if (a.len != b.len)
-    return false;
-  if (a.len == ESP_UUID_LEN_16)
-    return a.uuid.uuid16 == b.uuid.uuid16;
-  if (a.len == ESP_UUID_LEN_32)
-    return a.uuid.uuid32 == b.uuid.uuid32;
-  return std::memcmp(a.uuid.uuid128, b.uuid.uuid128, ESP_UUID_LEN_128) == 0;
-}
-
 bool DolphinBle::parse_hex_(const std::string &hex, std::vector<uint8_t> *out) {
   std::string compact;
   compact.reserve(hex.size());
@@ -707,30 +649,6 @@ std::string DolphinBle::format_ascii_(const uint8_t *data, size_t len) {
   return out;
 }
 
-std::string DolphinBle::extract_printable_runs_(const uint8_t *data, size_t len) {
-  std::string out;
-  std::string current;
-  for (size_t i = 0; i < len; i++) {
-    uint8_t c = data[i];
-    if (c >= 0x20 && c <= 0x7e) {
-      current.push_back(static_cast<char>(c));
-      continue;
-    }
-    if (current.size() >= 4) {
-      if (!out.empty())
-        out += " | ";
-      out += current;
-    }
-    current.clear();
-  }
-  if (current.size() >= 4) {
-    if (!out.empty())
-      out += " | ";
-    out += current;
-  }
-  return out;
-}
-
 bool DolphinBle::is_text_frame_chunk_(const uint8_t *data, size_t len) {
   if (len == 0)
     return false;
@@ -754,13 +672,6 @@ uint32_t DolphinBle::read_u32_be_(const uint8_t *data) {
 
 uint64_t DolphinBle::read_u64_be_(const uint8_t *data, size_t len) {
   uint64_t out = 0;
-  for (size_t i = 0; i < len; i++)
-    out = (out << 8) | data[i];
-  return out;
-}
-
-uint32_t DolphinBle::bytes_to_u32_(const uint8_t *data, size_t len) {
-  uint32_t out = 0;
   for (size_t i = 0; i < len; i++)
     out = (out << 8) | data[i];
   return out;
@@ -861,7 +772,7 @@ uint8_t DolphinBle::mode_from_string_(const std::string &mode) {
   if (mode == "pick_up" || mode == "pickup")
     return 0x0b;
   if (mode == "empty")
-    return 0xfe; // -2
+    return 0xfe;
   return 0x01;
 }
 
@@ -1016,49 +927,22 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   this->publish_text_(TEXT_FILTER_STATUS, filter_status_to_string_(payload[2]));
   this->publish_current_cleaning_mode_(payload[3]);
 
-  std::string status_summary = "robot=" + robot_state_to_string_(payload[0]);
-  status_summary += " pws=" + pws_state_to_string_(payload[1]);
-  status_summary += " filter=" + filter_status_to_string_(payload[2]);
-  status_summary += " mode=" + mode_to_string_(payload[3]);
-
   if (payload_len >= 14) {
-    this->publish_numeric_(NUMERIC_CYCLE_TIME, read_u16_be_(payload + 4));
     this->publish_numeric_(NUMERIC_CYCLE_DURATION, read_u32_be_(payload + 6));
     this->publish_numeric_(NUMERIC_CYCLE_TIME_REMAINING, read_u32_be_(payload + 10));
-    std::string cycle_summary = "cycle=0x" + hex_string_(payload + 4, 2);
-    cycle_summary += " duration=" + std::to_string(read_u32_be_(payload + 6)) + "s";
-    cycle_summary += " remaining=" + std::to_string(read_u32_be_(payload + 10)) + "s";
-    this->publish_text_(TEXT_CYCLE_INFO_SUMMARY, cycle_summary);
   }
   if (payload_len >= 15) {
     this->publish_numeric_(NUMERIC_IS_SMART, payload[14] ? 1.0f : 0.0f);
-    status_summary += payload[14] ? " smart=true" : " smart=false";
   }
-  if (payload_len >= 18) {
-    std::string next_cycle = "mode=" + mode_to_string_(payload[15]);
-    next_cycle += " duration=" + std::to_string(read_u16_be_(payload + 16)) + "m";
-    next_cycle += " raw=" + hex_string_(payload + 15, 3);
-    this->publish_text_(TEXT_NEXT_CYCLE_INFO_SUMMARY, next_cycle);
-  }
-  if (payload_len >= 30)
-    this->publish_text_(TEXT_FAULTS_SUMMARY, hex_string_(payload + 18, 12));
-  if (payload_len >= 53)
-    this->publish_text_(TEXT_CLEANING_MODES_SUMMARY, hex_string_(payload + 30, 23));
-  this->publish_text_(TEXT_SYSTEM_STATUS_SUMMARY, status_summary);
 }
 
 void DolphinBle::publish_temperature_from_frame_(const std::vector<uint8_t> &frame) {
   if (frame.size() < 17)
     return;
   const uint8_t *payload = &frame[7];
-  size_t payload_len = frame.size() - 9;
-  this->publish_text_(TEXT_TEMPERATURE_RAW, hex_string_(payload, payload_len));
   this->publish_text_(TEXT_IN_WATER_STATUS, water_status_to_string_(payload[0]));
   int16_t temperature = static_cast<int16_t>(read_u16_be_(payload + 1));
   this->publish_numeric_(NUMERIC_TEMPERATURE, static_cast<float>(temperature));
-  this->publish_numeric_(NUMERIC_READING_DURING_CYCLE, payload[3] ? 1.0f : 0.0f);
-  this->publish_numeric_(NUMERIC_MEASURING, payload[4] ? 1.0f : 0.0f);
-  this->publish_numeric_(NUMERIC_TEMPERATURE_TIMESTAMP, static_cast<float>(read_u64_be_(payload + 5, 5)));
 }
 
 void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) {
@@ -1066,21 +950,29 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
     return;
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
-  this->publish_text_(TEXT_MU_DATA_RAW, hex_string_(payload, payload_len));
 
   if (payload_len >= 172) {
     this->publish_numeric_(NUMERIC_ROBOT_TYPE, read_u16_be_(payload + 132));
     this->publish_numeric_(NUMERIC_MU_FLASH_WRITE_COUNTER, read_u32_be_(payload + 134));
-    this->publish_numeric_(NUMERIC_MU_CYCLE_TIME, read_u16_be_(payload + 138));
-    this->publish_numeric_(NUMERIC_MU_PCB_HOURS, read_u16_be_(payload + 140));
-    this->publish_numeric_(NUMERIC_MU_PCB_MINUTES, payload[142]);
-    this->publish_numeric_(NUMERIC_MU_IMPELLER_HOURS, read_u16_be_(payload + 143));
-    this->publish_numeric_(NUMERIC_MU_IMPELLER_MINUTES, payload[145]);
     this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_be_(payload + 146));
     this->publish_numeric_(NUMERIC_MU_NOT_COMPLETED_CYCLES, read_u16_be_(payload + 148));
-    this->publish_numeric_(NUMERIC_MU_SW_VERSION_MAJOR, payload[152]);
-    this->publish_numeric_(NUMERIC_MU_SW_VERSION_MINOR, read_u16_be_(payload + 153));
     this->publish_numeric_(NUMERIC_MU_CLIMB_PERIOD, payload[170]);
+
+    // Combined float runtime hours (hours + minutes/60)
+    uint16_t pcb_hrs = read_u16_be_(payload + 140);
+    uint8_t pcb_mins = payload[142];
+    this->publish_numeric_(NUMERIC_MU_PCB_RUNTIME, static_cast<float>(pcb_hrs) + static_cast<float>(pcb_mins) / 60.0f);
+
+    uint16_t imp_hrs = read_u16_be_(payload + 143);
+    uint8_t imp_mins = payload[145];
+    this->publish_numeric_(NUMERIC_MU_IMPELLER_RUNTIME, static_cast<float>(imp_hrs) + static_cast<float>(imp_mins) / 60.0f);
+
+    // Combined Software Version String
+    uint8_t major = payload[152];
+    uint16_t minor = read_u16_be_(payload + 153);
+    char ver_buf[16];
+    std::snprintf(ver_buf, sizeof(ver_buf), "%d.%d", major, minor);
+    this->publish_text_(TEXT_MU_SW_VERSION, ver_buf);
   }
 }
 
@@ -1089,11 +981,6 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
     return;
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
-  this->publish_text_(TEXT_SM_DATA_RAW, hex_string_(payload, payload_len));
-
-  std::string printable_runs = summarize_printable_runs_(payload, payload_len, 4, 32);
-  this->publish_text_(TEXT_SM_SUMMARY, printable_runs);
-  ESP_LOGI(TAG, "SM printable summary: %s", printable_runs.c_str());
 
   if (payload_len >= 151) {
     int16_t timezone = static_cast<int16_t>(read_u16_be_(payload + 63));
@@ -1136,17 +1023,56 @@ void DolphinBleButton::press_action() {
     case 2:
       this->parent_->press_pickup_mode();
       break;
-    case 3:
-      this->parent_->restart_probes();
-      break;
-    case 4:
-      this->parent_->press_manual_drive();
-      break;
-    case 5:
-      this->parent_->press_quit_manual_drive();
-      break;
     default:
       break;
+  }
+}
+
+void DolphinBle::press_start_cleaning() { this->send_command_frame_(0x06, 0xFFF8, {}, "start_up_dolphin"); }
+
+void DolphinBle::press_stop_cleaning() { this->send_command_frame_(0x05, 0xFFF8, {}, "shutdown_dolphin"); }
+
+void DolphinBle::press_pickup_mode() {
+  this->publish_current_cleaning_mode_(0x0b);
+  this->send_command_frame_(0x03, 0xFFE9, {0x0b}, "start_pickup_mode");
+}
+
+void DolphinBle::press_quit_manual_drive() {
+  this->send_command_frame_(0x04, 0xFFF7, {}, "quit_manual_drive");
+}
+
+void DolphinBle::set_cleaning_mode_option(const std::string &option) {
+  uint8_t mode = mode_from_string_(option);
+  this->selected_cleaning_mode_ = mode;
+  if (this->cleaning_mode_select_ != nullptr)
+    this->cleaning_mode_select_->publish_state(mode_to_string_(mode));
+  this->send_command_frame_(0x03, 0xFFE9, {mode}, "set_cleaning_mode");
+}
+
+void DolphinBle::set_manual_drive_direction_option(const std::string &option) {
+  uint8_t direction = direction_from_string_(option);
+  this->selected_manual_drive_direction_ = direction;
+  if (this->manual_drive_direction_select_ != nullptr)
+    this->manual_drive_direction_select_->publish_state(direction_to_string_(direction));
+
+  if (direction == 0x01) { // stop
+    ESP_LOGI(TAG, "Exiting manual control steering mode");
+    this->press_quit_manual_drive();
+  } else {
+    uint8_t speed = static_cast<uint8_t>(std::clamp(this->selected_manual_drive_speed_, 0.0f, 100.0f));
+    ESP_LOGI(TAG, "Steering robot direction=%s speed=%d", option.c_str(), speed);
+    this->send_command_frame_(0x03, 0xFFF7, {direction, speed}, "manual_drive");
+  }
+}
+
+void DolphinBle::set_manual_drive_speed(float speed) {
+  this->selected_manual_drive_speed_ = speed;
+  uint8_t direction = this->selected_manual_drive_direction_;
+  if (direction != 0x01) { // not stop
+    uint8_t speed_byte = static_cast<uint8_t>(std::clamp(speed, 0.0f, 100.0f));
+    ESP_LOGI(TAG, "Updating steering speed direction=%s speed=%d",
+             direction_to_string_(direction).c_str(), speed_byte);
+    this->send_command_frame_(0x03, 0xFFF7, {direction, speed_byte}, "manual_drive");
   }
 }
 
