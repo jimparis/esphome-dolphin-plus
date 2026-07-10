@@ -310,6 +310,7 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
 - **Opcode**: `02`, **Destination**: `FFFD`, **Request Payload**: `02 00 ff`
 - **Envelope Request**: `03:ab03fffd0200030200ff03b0`
 - **Response Layout (256 Bytes parsed dynamically)**:
+  - The first raw response-payload byte is an ACK; the protocol applies these offsets to the remaining `mData` bytes. In raw ESPHome frames, add 1 to every offset below.
   - **Bytes 38 - 41**: PWS Software Version.
     - Byte 38: Major version (as unsigned int).
     - Byte 39: Minor version (as unsigned int).
@@ -351,6 +352,7 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
 - **Opcode**: `01`, **Destination**: `FFFD`, **Request Payload**: `01 00 ff`
 - **Envelope Request**: `03:ab03fffd0100030100ff03ae`
 - **Response Layout (256 Bytes parsed dynamically)**:
+  - The first raw response-payload byte is an ACK; the protocol applies these offsets to the remaining `mData` bytes. In raw ESPHome frames, add 1 to every offset below.
   - **Bytes 0 - 119**: Fault History Records. Contains 10 historical fault blocks of 12 bytes each, ordered chronologically (newest first if flipped):
     - Byte 0: Fault Error Code.
     - Bytes 1-2: PCB Operating Hours at fault (2 bytes, Little-Endian Short).
@@ -403,6 +405,7 @@ The offsets above are taken from `protocol documentation`, specifically `res/raw
 If the unit features `inwat=true` in `pws_features`, this command can read internal environment sensors. If not supported, sending it triggers low-level failures.
 - **Opcode**: `09`, **Destination**: `FFF8`, **Request Payload**: None
 - **Response Layout (10 Bytes)**:
+  - The first raw response-payload byte is an ACK; the protocol data offsets below begin at raw payload byte 1.
   - **Byte 0**: In-Water Status (`00` = Out of water, `01` = In water, `02` = Unknown, `03` = Error, `04` = No Baro/Calibrate, `0f` = Loading).
   - **Bytes 1 - 2**: Water Temperature (16-bit signed Big-Endian Int in Celsius, scaled by 10, e.g. `00 f5` = 24.5°C). Special values `0xFFFF` (`65535`), `0x03E9` (`1001`), and `0x03EA` (`1002`) indicate unavailable or reading-failed states.
   - **Byte 3**: Measuring During Cycle active flag (`01` = Active).

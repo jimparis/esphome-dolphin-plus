@@ -20,7 +20,7 @@ This document provides a summary of the current state of the ESPHome Maytronics 
 - **PWS Features**:
   - Successfully decodes capabilities: `in_water=true`, `cellular=false`.
 - **Cycle Start Time & Configured Cycle Duration**:
-  - The protocol parser strips the first response-payload byte as an ACK before applying offsets. In the raw ESPHome frame, status bytes 5–6 are `cycleTime`, bytes 7–10 are device uptime, and bytes 11–14 are UTC Unix time, all big-endian. The protocol adds no epoch offset. The duration estimate matrix begins at raw payload offset 31, but is separate from `cycleTime`.
+  - The protocol parser strips the first response-payload byte as an ACK before applying offsets. In the raw ESPHome frame, status bytes 5–6 are `cycleTime`, bytes 7–10 are device uptime, and bytes 11–14 are UTC Unix time, all big-endian. The protocol adds no epoch offset. The duration estimate matrix begins at raw payload offset 31, but is separate from `cycleTime`. The same ACK rule applies independently to SM and MU responses.
 - **LED Light Control (Opcode 0x10)**:
   - Implemented as a custom ESPHome `light` entity which allows toggle, brightness control (0-100% mapped to byte 1), and mode effects (`Blinking` mapped to mode 1, `Constant/None` mapped to mode 2, and `Disco` mapped to mode 3).
 
@@ -63,6 +63,7 @@ When the ESP32 is reconnected, preserve complete raw MU, SM, and status frames. 
 - **History / finding:** The table start oscillation was an indexing mistake; protocol evidence fixes it at 30. The invalid values `0x0100`, `0x0200`, and `0x0300` track the selected mode, proving the protocol-named `cycleTime` field is not a minute duration on this PWS.
 - **Current correction:** The protocol’s actual configured values are SM payload bytes 217–236 (`cycle_times`), not the status estimates table. The implementation now reads that table after SM metadata arrives and selects the entry matching the chosen mode.
 - **Remaining proof:** Verify the ten SM values against the app’s displayed mode durations, especially Spot.
+- **Latest evidence:** After applying the SM response ACK shift, the live table is `120, 60, 120, 120, 120, 120, 120, 120, 120, 120` minutes. All Surfaces therefore decodes to 7200 seconds; the prior 15360/NA values came from reading the raw block one byte early.
 
 ### ISSUE-2: Cleaning Mode reports `None`
 
@@ -94,6 +95,7 @@ When the ESP32 is reconnected, preserve complete raw MU, SM, and status frames. 
 - **What it does not do:** It does not configure what pressing the physical power-supply button does, and the YAML has no entity for that. The current code only formats the bitmask into text.
 - **Physical button control status:** No command or response mapping for “physical button action” has been established in this repository. We must not claim that the button can be configured until an app trace or protocol mapping identifies that setting.
 - **Next proof required:** Identify the app’s setting/API and corresponding packet, if one exists. Separately expose capability flags and actual schedule/button configuration so they cannot be conflated.
+- **Latest evidence:** Correctly applying the SM ACK shift makes the live timezone bytes `ff 10`, or `-240` minutes (America/New_York), confirming that the SM offsets were also being applied one byte early.
 
 ### ISSUE-6: Which state indicates that cleaning is in progress?
 
@@ -109,4 +111,15 @@ When the ESP32 is reconnected, preserve complete raw MU, SM, and status frames. 
 - **Captured bytes:** The prior MU log for payload offsets 130–159 was `000000a00f4f4300007800390325390322c50141000216020000a2ffffff`. At the protocol-defined ranges this is PCB `00 39`, PCB minutes `03`, impeller `25 39`, impeller minutes `03`.
 - **Additional observation:** `MU Not Completed Cycles` has also appeared as `16897` (`0x4201`). For bytes `01 42`, big-endian is `322`, while little-endian is `16897`; the latter is not credible. This demonstrates that the protocol's generic MU endian behavior cannot be blindly applied to this device.
 - **Conflict:** Little-endian at the protocol-defined runtime ranges gives PCB `14592 h` and impeller `14629 h`; big-endian gives PCB `57 h` and impeller `9529 h`. The previous adjacent-byte interpretation yielded roughly `825 h`, which is numerically more plausible but is not supported by the protocol ranges. This is therefore not safe to “fix” by another endian or ±1 change.
-- **Next proof required:** Obtain a fresh full MU response from this exact PWS and compare it with the official app’s displayed diagnostics or a known runtime change. Until that comparison exists, the runtime sensors must be treated as unverified and should not be presented as accurate hours.
+- **Latest evidence:** The fresh live MU response, with the ACK shift applied, decodes to PCB `828h 49m`, impeller `828h 46m`, turn-on count `457`, and incomplete cycles `68`. These values are physically credible and replace the previous unshifted garbage values. Keep this issue open until confirmed against the phone diagnostics, but do not change endian order or adjacent offsets again.
+
+### ISSUE-8: Filter clog level reports 102% when the filter is not clogged
+
+- **Observed:** Raw status filter byte `0x66` was published as numeric 102 even though the filter is not clogged. During cleaning it becomes `0x00`.
+- **protocol evidence:** The app’s filter mapping treats decimal 102 as `not_available`, not as a percentage.
+- **Current correction:** The numeric sensor now publishes `NA` for `0x66`/`0xff`; the text sensor reports `not_available`. Zero remains an empty/clear filter indication.
+
+### ISSUE-9: In-water status is unavailable on this device
+
+- **Observed:** The app and ESPHome provide no usable in-water measurement.
+- **Current correction:** Capability parsing now includes the response ACK shift, and temperature polling remains gated by the corrected capability bit. If this PWS does not advertise in-water support, the temperature/in-water command is not sent; the entity remains `NA`.

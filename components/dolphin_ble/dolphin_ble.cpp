@@ -990,16 +990,18 @@ void DolphinBle::publish_pws_features_from_frame_(const std::vector<uint8_t> &fr
     return;
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
-  if (payload_len < 3)
+  if (payload_len < 4)
     return;
 
-  // LSB-first bit string mapping of payload[2]:
+  // The first payload byte is the response ACK. The protocol's data starts at
+  // payload[1], so the feature bitfield is raw payload[3].
+  // LSB-first bit string mapping of mData[2]:
   // bit 0: Network Sensing (WiFi support)
   // bit 1: In-Water capability
   // bit 2: Cellular support
   // bit 3: OTA support
   // bit 4: PCS support
-  uint8_t bits = payload[2];
+  uint8_t bits = payload[3];
   bool network_sensing = (bits & 0x01) != 0;
   this->in_water_capable_ = (bits & 0x02) != 0;
   bool cellular = (bits & 0x04) != 0;
@@ -1029,8 +1031,10 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   // relative to the raw ESPHome frame.
   this->publish_text_(TEXT_ROBOT_STATE, robot_state_to_string_(payload[1]));
   this->publish_text_(TEXT_PWS_STATE, pws_state_to_string_(payload[2]));
-  this->publish_numeric_(NUMERIC_FILTER_STATE, payload[3]);
-  this->publish_text_(TEXT_FILTER_STATUS, filter_status_to_string_(payload[3]));
+  uint8_t filter_state = payload[3];
+  this->publish_numeric_(NUMERIC_FILTER_STATE,
+                         filter_state == 0x66 || filter_state == 0xff ? NAN : filter_state);
+  this->publish_text_(TEXT_FILTER_STATUS, filter_status_to_string_(filter_state));
   this->publish_current_cleaning_mode_(payload[4]);
 
   if (payload_len >= 14) {
@@ -1061,9 +1065,10 @@ void DolphinBle::publish_temperature_from_frame_(const std::vector<uint8_t> &fra
   if (frame.size() < 10)
     return;
   const uint8_t *payload = &frame[7];
-  this->publish_text_(TEXT_IN_WATER_STATUS, water_status_to_string_(payload[0]));
+  // The first payload byte is the response ACK.
+  this->publish_text_(TEXT_IN_WATER_STATUS, water_status_to_string_(payload[1]));
 
-  int16_t temperature = static_cast<int16_t>(read_u16_be_(payload + 1));
+  int16_t temperature = static_cast<int16_t>(read_u16_be_(payload + 2));
   if (temperature == 0xFFFF || temperature == 0x3E9 || temperature == 0x3EA || temperature < 0) {
     this->publish_numeric_(NUMERIC_TEMPERATURE, NAN);
   } else {
@@ -1078,42 +1083,44 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
   size_t payload_len = frame.size() - 9;
 
   if (payload_len >= 172) {
-    this->publish_numeric_(NUMERIC_ROBOT_TYPE, read_u16_le_(payload + 132));
-    this->publish_numeric_(NUMERIC_MU_FLASH_WRITE_COUNTER, read_u32_le_(payload + 134));
-    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_le_(payload + 146));
-    this->publish_numeric_(NUMERIC_MU_NOT_COMPLETED_CYCLES, read_u16_le_(payload + 148));
-    this->publish_numeric_(NUMERIC_MU_CLIMB_PERIOD, payload[170]);
+    // The protocol applies these offsets after stripping the response ACK byte.
+    constexpr size_t D = 1;
+    this->publish_numeric_(NUMERIC_ROBOT_TYPE, read_u16_le_(payload + 132 + D));
+    this->publish_numeric_(NUMERIC_MU_FLASH_WRITE_COUNTER, read_u32_le_(payload + 134 + D));
+    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_le_(payload + 146 + D));
+    this->publish_numeric_(NUMERIC_MU_NOT_COMPLETED_CYCLES, read_u16_le_(payload + 148 + D));
+    this->publish_numeric_(NUMERIC_MU_CLIMB_PERIOD, payload[170 + D]);
 
     // Combined float runtime hours (hours + minutes/60)
-    uint16_t pcb_hrs = read_u16_le_(payload + 140);
+    uint16_t pcb_hrs = read_u16_le_(payload + 140 + D);
     if (pcb_hrs == 0xFFFF) {
       this->publish_numeric_(NUMERIC_MU_PCB_RUNTIME, NAN);
     } else {
-      uint8_t pcb_mins = payload[142];
+      uint8_t pcb_mins = payload[142 + D];
       this->publish_numeric_(NUMERIC_MU_PCB_RUNTIME, static_cast<float>(pcb_hrs) + static_cast<float>(pcb_mins) / 60.0f);
     }
 
-    uint16_t imp_hrs = read_u16_le_(payload + 143);
-    uint8_t imp_mins = payload[145];
+    uint16_t imp_hrs = read_u16_le_(payload + 143 + D);
+    uint8_t imp_mins = payload[145 + D];
     this->publish_numeric_(NUMERIC_MU_IMPELLER_RUNTIME, static_cast<float>(imp_hrs) + static_cast<float>(imp_mins) / 60.0f);
 
     // Combined Software Version String
-    uint8_t major = payload[152];
+    uint8_t major = payload[152 + D];
     uint16_t minor = 0;
     if (major != 0xFF) {
-      minor = read_u16_le_(payload + 153);
-    } else if (payload[154] != 0xFF) {
-      major = payload[154];
-      minor = read_u16_le_(payload + 155);
+      minor = read_u16_le_(payload + 153 + D);
+    } else if (payload[154 + D] != 0xFF) {
+      major = payload[154 + D];
+      minor = read_u16_le_(payload + 155 + D);
     }
     char ver_buf[16];
     std::snprintf(ver_buf, sizeof(ver_buf), "%d.%d", major, minor);
     this->publish_text_(TEXT_MU_SW_VERSION, ver_buf);
 
-    // Parse active LED configuration from byte 157
-    uint8_t led_val = payload[157];
-    ESP_LOGD(TAG, "Telemetry LED status byte (offset 157): 0x%02X", led_val);
-    if (this->led_light_ != nullptr) {
+    // Parse active LED configuration from protocol mData byte 157
+    uint8_t led_val = payload[157 + D];
+    ESP_LOGD(TAG, "Telemetry LED status byte (mData offset 157): 0x%02X", led_val);
+    if (this->led_light_ != nullptr && led_val != 0xff) {
       bool led_on = (led_val != 0);
       std::string led_effect = "None";
       if (led_val == 1) {
@@ -1144,10 +1151,11 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
   size_t payload_len = frame.size() - 9;
 
   if (payload_len >= 151) {
-    int16_t timezone = static_cast<int16_t>(read_u16_be_(payload + 63));
+    constexpr size_t D = 1;
+    int16_t timezone = static_cast<int16_t>(read_u16_be_(payload + 63 + D));
     this->publish_numeric_(NUMERIC_SM_TIMEZONE, timezone);
 
-    uint8_t qf = payload[65];
+    uint8_t qf = payload[65 + D];
     std::string qf_str;
     if (qf & 0x01) qf_str += "WeeklyTimer1D ";
     if (qf & 0x02) qf_str += "WeeklyTimer2D ";
@@ -1164,16 +1172,16 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
     if (payload_len >= 237) {
       ESP_LOGI(TAG, "SM payload bytes 210-240: %s", this->format_hex_(payload + 210, 30).c_str());
       for (size_t i = 0; i < 10; i++)
-        this->configured_cycle_times_mins_[i] = read_u16_be_(payload + 217 + i * 2);
+        this->configured_cycle_times_mins_[i] = read_u16_be_(payload + 217 + D + i * 2);
       this->configured_cycle_times_known_ = true;
       this->publish_configured_cycle_duration_();
     }
 
     std::string ssid;
-    for (size_t i = 118; i <= 150 && i < payload_len; i++) {
-      if (payload[i] == '\0')
+    for (size_t i = 118; i <= 150 && i + D < payload_len; i++) {
+      if (payload[i + D] == '\0')
         break;
-      ssid.push_back(static_cast<char>(payload[i]));
+      ssid.push_back(static_cast<char>(payload[i + D]));
     }
     this->publish_text_(TEXT_WIFI_SSID, ssid);
   }
