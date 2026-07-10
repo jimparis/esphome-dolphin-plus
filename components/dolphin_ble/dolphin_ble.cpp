@@ -956,6 +956,20 @@ void DolphinBle::publish_numeric_(uint8_t kind, float value) {
     this->numeric_sensors_[kind]->publish_state(value);
 }
 
+void DolphinBle::publish_configured_cycle_duration_() {
+  if (!this->configured_cycle_times_known_ || this->selected_cleaning_mode_ < 1 ||
+      this->selected_cleaning_mode_ > 10) {
+    this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
+    return;
+  }
+  uint16_t minutes = this->configured_cycle_times_mins_[this->selected_cleaning_mode_ - 1];
+  if (minutes == 0 || minutes == 0xffff || minutes > 24 * 60) {
+    this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
+  } else {
+    this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(minutes * 60));
+  }
+}
+
 void DolphinBle::publish_text_(uint8_t kind, const std::string &value) {
   if (kind < this->text_sensors_.size() && this->text_sensors_[kind] != nullptr)
     this->text_sensors_[kind]->publish_state(value);
@@ -1023,29 +1037,21 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
     //   bytes 6-9: cycleStartTimeUTC (BE Unix timestamp)
     // These are status-payload offsets 4, 6, and 10 respectively.
     uint32_t start_time = read_u32_be_(payload + 10);
-    if (start_time == 0) {
+    bool cycle_active = payload[1] == 0x05 || payload[0] == 0x01 || payload[0] == 0x02 || payload[0] == 0x03;
+    bool timestamp_sane = start_time >= 1577836800UL && start_time <= 4102444800UL;
+    if (!cycle_active || !timestamp_sane) {
       this->publish_numeric_(NUMERIC_CYCLE_START_TIME, NAN);
     } else {
-      this->publish_numeric_(NUMERIC_CYCLE_START_TIME, static_cast<float>(start_time));
-    }
-  }
-  if (payload_len >= 52) {
-    // The protocol parses cleaning_modes independently from cycle_info. Each entry
-    // is a big-endian duration in minutes, starting at payload byte 30.
-    // When idle, retain the last selected mode so this remains a configured
-    // estimate; an unsupported/sentinel entry is published as unavailable.
-    uint8_t mode = payload[3];
-    if (mode == 0)
-      mode = this->selected_cleaning_mode_;
-    uint16_t duration_mins = 0xffff;
-    if (mode >= 1 && mode <= 11)
-      duration_mins = read_u16_be_(payload + 30 + (mode - 1) * 2);
-    ESP_LOGD(TAG, "Cycle duration mode=%u matrix_offset=%u raw_minutes=0x%04x", mode,
-             30 + (mode >= 1 && mode <= 11 ? (mode - 1) * 2 : 0), duration_mins);
-    if (duration_mins == 0 || duration_mins == 0xffff || duration_mins > 24 * 60) {
-      this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
-    } else {
-      this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(duration_mins * 60));
+      bool too_far_in_future = false;
+      if (this->time_id_ != nullptr) {
+        auto now = this->time_id_->now();
+        too_far_in_future = now.is_valid() && start_time > now.timestamp + 86400UL;
+      }
+      if (too_far_in_future) {
+        this->publish_numeric_(NUMERIC_CYCLE_START_TIME, NAN);
+      } else {
+        this->publish_numeric_(NUMERIC_CYCLE_START_TIME, static_cast<float>(start_time));
+      }
     }
   }
 }
@@ -1154,6 +1160,13 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
       qf_str.pop_back();
     this->publish_text_(TEXT_QUICK_FEATURES, qf_str);
 
+    if (payload_len >= 237) {
+      for (size_t i = 0; i < 10; i++)
+        this->configured_cycle_times_mins_[i] = read_u16_be_(payload + 217 + i * 2);
+      this->configured_cycle_times_known_ = true;
+      this->publish_configured_cycle_duration_();
+    }
+
     std::string ssid;
     for (size_t i = 118; i <= 150 && i < payload_len; i++) {
       if (payload[i] == '\0')
@@ -1200,6 +1213,7 @@ void DolphinBle::set_cleaning_mode_option(const std::string &option) {
   this->selected_cleaning_mode_ = mode;
   if (this->cleaning_mode_select_ != nullptr)
     this->cleaning_mode_select_->publish_state(mode_to_string_(mode));
+  this->publish_configured_cycle_duration_();
   this->send_command_frame_(0x03, 0xFFE9, {mode}, "set_cleaning_mode");
 }
 

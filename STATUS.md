@@ -48,8 +48,9 @@ These are explicit investigation items. Each one needs packet evidence and a rep
 - **Observed:** Home Assistant reports `3916800 s` (65,280 minutes / raw `0xff00`), which is not a plausible cleaning duration.
 - **Previous code path:** The implementation incorrectly selected a matrix entry using status byte 3 and a fallback mode. The protocol instead parses `cycle_info` bytes 4–5 directly as `cycleTime`; the matrix at byte 30 is a separate set of estimates.
 - **Evidence:** The captured idle frame contains a duration table with repeated `0x0078` (120-minute) values and `0xff` bytes before it. The `0xff00` result proves that an invalid/sentinel pair or an incorrectly aligned field is being treated as minutes; it is not a real duration.
-- **History / finding:** The table start oscillation was an indexing mistake; protocol evidence fixes it at 30. The invalid values `0x0100`, `0x0200`, and `0x0300` track the selected mode, proving the protocol-named `cycleTime` field is not a minute duration on this PWS. The code now uses the separate mode estimate matrix and rejects sentinel values.
-- **Remaining proof:** Verify the matrix values for every supported mode against the app’s displayed estimates, especially Spot, which currently appears to contain an unavailable/sentinel entry.
+- **History / finding:** The table start oscillation was an indexing mistake; protocol evidence fixes it at 30. The invalid values `0x0100`, `0x0200`, and `0x0300` track the selected mode, proving the protocol-named `cycleTime` field is not a minute duration on this PWS.
+- **Current correction:** The protocol’s actual configured values are SM payload bytes 217–236 (`cycle_times`), not the status estimates table. The implementation now reads that table after SM metadata arrives and selects the entry matching the chosen mode.
+- **Remaining proof:** Verify the ten SM values against the app’s displayed mode durations, especially Spot.
 
 ### ISSUE-2: Cleaning Mode reports `None`
 
@@ -63,6 +64,7 @@ These are explicit investigation items. Each one needs packet evidence and a rep
 - **Observed:** The displayed timestamp is about six months ahead. Before a cycle starts it has also appeared as `NA`.
 - **What has actually been tried:** The parser was changed repeatedly between raw values, little-endian, big-endian, and a hard-coded `1559347200` epoch offset. protocol parser implementation now conclusively fixes bytes 6–9 as device uptime and bytes 10–13 as `cycleStartTimeUTC`, both big-endian, with no added epoch.
 - **Important conclusion:** The six-month error was caused by the unverified epoch addition. The protocol does not add one. If the live value is still wrong after this correction, the remaining question is device clock synchronization—not adjacent status-byte selection.
+- **Current correction:** Selecting a mode does not start a cycle; opcode `0x03` only sets the mode. The implementation now suppresses start time unless the status reports an active cycle and rejects timestamps outside a sane Unix range or far in the future.
 - **`NA` interpretation:** A zero/unset start field before a cycle can be legitimate. Publishing `NA` while idle is preferable to inventing a timestamp, but we need to determine whether Home Assistant should retain the last completed start time or clear it.
 - **Next proof required:** Record raw bytes 4–13, the ESPHome SNTP Unix timestamp, and the device RTC write value at the same moment immediately after starting. Confirm bytes 10–13 match UTC wall time. Do not revisit adjacent offsets or endian order without contradicting protocol parser implementation evidence.
 

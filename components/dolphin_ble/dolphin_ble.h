@@ -145,6 +145,7 @@ class DolphinBle : public Component {
   void publish_mu_data_from_frame_(const std::vector<uint8_t> &frame);
   void publish_sm_data_from_frame_(const std::vector<uint8_t> &frame);
   void publish_pws_features_from_frame_(const std::vector<uint8_t> &frame);
+  void publish_configured_cycle_duration_();
 
   std::string mac_address_;
   std::string name_filter_;
@@ -197,6 +198,8 @@ class DolphinBle : public Component {
   select::Select *cleaning_mode_select_{nullptr};
   select::Select *manual_drive_direction_select_{nullptr};
   uint8_t selected_cleaning_mode_{1};
+  std::array<uint16_t, 11> configured_cycle_times_mins_{};
+  bool configured_cycle_times_known_{false};
   uint8_t selected_manual_drive_direction_{1};
   float selected_manual_drive_speed_{50.0f};
   light::LightState *led_light_{nullptr};
