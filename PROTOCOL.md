@@ -383,7 +383,7 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
   - **Byte 2**: `filter_state` (Filter bag clog byte).
   - **Byte 3**: `cleaning_mode` (Active `CleanMode` value).
   - **Bytes 4 - 13**: Active Cleaning Cycle Progress.
-    - Bytes 4-5: Current cycle time in minutes (`cycleTime`), 16-bit big-endian.
+    - Bytes 4-5: protocol `cycleTime`/cycle-type field, 16-bit big-endian. On the observed PWS this changes as `0x0100`, `0x0200`, etc. with the selected cleaning mode and must not be treated as minutes.
     - Bytes 6-9: Monotonic PWS start uptime in seconds (`cycleStartTime`), 32-bit big-endian.
     - Bytes 10-13: UTC cycle start time Unix timestamp in seconds (`cycleStartTimeUTC`), 32-bit big-endian.
   - **Byte 14**: `is_smart` feature flag (Boolean, `00` or `01`).
@@ -392,7 +392,7 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
     - Bytes 16-17: Delay/Time to next run in minutes (2-byte Short).
   - **Bytes 18 - 29**: Currently active fault/error blocks (12 bytes).
   - **Bytes 30 - 51**: Cleaning modes estimate matrix table.
-    - Contains 11 entries of 16-bit big-endian minute values, one per cleaning mode. The protocol parses these independently as estimates; it does not use them as a substitute for `cycle_info[0..1]`.
+    - Contains 11 entries of 16-bit big-endian minute values, one per cleaning mode. This is the source for the configured duration estimate: entry `cleaning_mode - 1`.
 
 ### protocol offset authority
 

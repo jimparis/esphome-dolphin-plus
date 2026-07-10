@@ -34,7 +34,7 @@ This document provides a summary of the current state of the ESPHome Maytronics 
 
 The checked-in `protocol documentation` is the authority for these offsets. Its `protocol field definitions` uses half-open ranges (`start` inclusive, `end` exclusive), and the parser implementation confirms the integer conversion behavior.
 
-- `system_status`: payload bytes 0–3 are states/mode; bytes 4–5 are big-endian `cycleTime`; bytes 6–9 are big-endian device uptime; bytes 10–13 are big-endian `cycleStartTimeUTC`; bytes 30–51 are 11 big-endian minute estimates.
+- `system_status`: payload bytes 0–3 are states/mode; bytes 4–5 are the protocol-named big-endian `cycleTime`/cycle-type field; bytes 6–9 are big-endian device uptime; bytes 10–13 are big-endian `cycleStartTimeUTC`; bytes 30–51 are 11 big-endian minute estimates.
 - `get_sm_data`: timezone is payload bytes 63–64; Quick Features is byte 65; weekly data is 72–107; delay is 108–113; SSID is 118–150; cycle-time settings are 217–236.
 - `get_mu_data`: the authoritative fields are robot type 132–133, flash counter 134–137, cycle time 138–139, PCB hours 140–141, PCB minutes 142, impeller hours 143–144, impeller minutes 145, turn-on count 146–147, incomplete cycles 148–149, LEDs 157, clean mode 167, and climb period 170. Multi-byte values are little-endian in the protocol parser.
 - The previous implementation was wrong at SM offsets 63/65 and at several MU offsets after byte 140. Those corrections are now applied.
@@ -48,8 +48,8 @@ These are explicit investigation items. Each one needs packet evidence and a rep
 - **Observed:** Home Assistant reports `3916800 s` (65,280 minutes / raw `0xff00`), which is not a plausible cleaning duration.
 - **Previous code path:** The implementation incorrectly selected a matrix entry using status byte 3 and a fallback mode. The protocol instead parses `cycle_info` bytes 4–5 directly as `cycleTime`; the matrix at byte 30 is a separate set of estimates.
 - **Evidence:** The captured idle frame contains a duration table with repeated `0x0078` (120-minute) values and `0xff` bytes before it. The `0xff00` result proves that an invalid/sentinel pair or an incorrectly aligned field is being treated as minutes; it is not a real duration.
-- **History / finding:** The table start oscillation was an indexing mistake; protocol evidence fixes it at 30. The invalid 0xff00 result came from treating an estimate/sentinel pair as the configured duration. The code now reads the protocol-defined `cycleTime` field and rejects implausible values.
-- **Remaining proof:** Verify the device's live `cycleTime` value against the app's selected 1.5/2/2.5/3.5-hour options during an actual cycle.
+- **History / finding:** The table start oscillation was an indexing mistake; protocol evidence fixes it at 30. The invalid values `0x0100`, `0x0200`, and `0x0300` track the selected mode, proving the protocol-named `cycleTime` field is not a minute duration on this PWS. The code now uses the separate mode estimate matrix and rejects sentinel values.
+- **Remaining proof:** Verify the matrix values for every supported mode against the app’s displayed estimates, especially Spot, which currently appears to contain an unavailable/sentinel entry.
 
 ### ISSUE-2: Cleaning Mode reports `None`
 

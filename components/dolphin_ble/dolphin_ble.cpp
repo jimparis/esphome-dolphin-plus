@@ -1018,7 +1018,7 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
 
   if (payload_len >= 14) {
     // The protocol parses cycle_info as:
-    //   bytes 0-1: cycleTime (BE minutes)
+    //   bytes 0-1: cycleTime/cycle-type field (BE; not a duration on this PWS)
     //   bytes 2-5: cycleStartTime (BE device uptime)
     //   bytes 6-9: cycleStartTimeUTC (BE Unix timestamp)
     // These are status-payload offsets 4, 6, and 10 respectively.
@@ -1029,14 +1029,23 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
       this->publish_numeric_(NUMERIC_CYCLE_START_TIME, static_cast<float>(start_time));
     }
   }
-  if (payload_len >= 6) {
-    // The protocol's CleaningCycle.cycleTime is cycle_info bytes 0-1, i.e.
-    // status payload bytes 4-5. It is already minutes, not seconds.
-    uint16_t cycle_time_mins = read_u16_be_(payload + 4);
-    if (cycle_time_mins == 0 || cycle_time_mins == 0xffff || cycle_time_mins > 24 * 60) {
+  if (payload_len >= 52) {
+    // The protocol parses cleaning_modes independently from cycle_info. Each entry
+    // is a big-endian duration in minutes, starting at payload byte 30.
+    // When idle, retain the last selected mode so this remains a configured
+    // estimate; an unsupported/sentinel entry is published as unavailable.
+    uint8_t mode = payload[3];
+    if (mode == 0)
+      mode = this->selected_cleaning_mode_;
+    uint16_t duration_mins = 0xffff;
+    if (mode >= 1 && mode <= 11)
+      duration_mins = read_u16_be_(payload + 30 + (mode - 1) * 2);
+    ESP_LOGD(TAG, "Cycle duration mode=%u matrix_offset=%u raw_minutes=0x%04x", mode,
+             30 + (mode >= 1 && mode <= 11 ? (mode - 1) * 2 : 0), duration_mins);
+    if (duration_mins == 0 || duration_mins == 0xffff || duration_mins > 24 * 60) {
       this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
     } else {
-      this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(cycle_time_mins * 60));
+      this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(duration_mins * 60));
     }
   }
 }
