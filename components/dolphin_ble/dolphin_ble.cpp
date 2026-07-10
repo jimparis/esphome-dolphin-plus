@@ -326,8 +326,8 @@ void DolphinBle::handle_polling_() {
     this->last_status_poll_ = now;
   }
 
-  // 3. Poll water temperature sensor every 30 seconds (if capability is supported)
-  if (this->in_water_capable_) {
+  // 3. Poll water temperature sensor every 30 seconds (if capability is supported and sensor is registered)
+  if (this->in_water_capable_ && this->numeric_sensors_[NUMERIC_TEMPERATURE] != nullptr) {
     if (this->last_temp_poll_ == 0 || now - this->last_temp_poll_ >= 30000) {
       this->send_local_notification_text_("03:ab03fff809000002ae");
       this->last_temp_poll_ = now;
@@ -962,7 +962,9 @@ void DolphinBle::publish_text_(uint8_t kind, const std::string &value) {
 }
 
 void DolphinBle::publish_current_cleaning_mode_(uint8_t mode) {
-  this->selected_cleaning_mode_ = mode;
+  if (mode >= 1 && mode <= 11) {
+    this->selected_cleaning_mode_ = mode;
+  }
   std::string value = mode_to_string_(mode);
   this->publish_text_(TEXT_CLEANING_MODE, value);
   if (this->cleaning_mode_select_ != nullptr && mode >= 1 && mode <= 11)
@@ -1016,10 +1018,17 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
 
   if (payload_len >= 14) {
     uint32_t start_time = read_u32_be_(payload + 10);
-    this->publish_numeric_(NUMERIC_CYCLE_START_TIME, static_cast<float>(start_time));
+    if (start_time == 0) {
+      this->publish_numeric_(NUMERIC_CYCLE_START_TIME, NAN);
+    } else {
+      this->publish_numeric_(NUMERIC_CYCLE_START_TIME, static_cast<float>(start_time + 1559347200));
+    }
   }
   if (payload_len >= 52) {
     uint8_t active_mode = payload[3];
+    if (active_mode == 0) {
+      active_mode = this->selected_cleaning_mode_;
+    }
     uint16_t duration_mins = 0;
     if (active_mode >= 1 && active_mode <= 11) {
       // Cleaning mode durations table (big-endian shorts in minutes) starts at offset 30
