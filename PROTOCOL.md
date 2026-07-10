@@ -70,13 +70,14 @@ Represents the state of the PWS (Power Supply).
 
 | Value | State Name | Description |
 | :---: | :--- | :--- |
-| **0** | `off` | Power supply is off. |
+| **0** | `on` | Power supply is on / active. |
 | **1** | `on` | Power supply is turned on. |
 | **2** | `holdWeekly` | Weekly program is set and waiting. |
 | **3** | `holdDelay` | Start delay timer is active. |
 | **4** | `programming` | Controller is in programming mode. |
 | **5** | `onCleanMode` | Currently executing a cleaning cycle. |
 | **6** | `sleep` | Power supply is in sleep / standby mode. |
+| **7** | `off` | Power supply is off / standby. |
 | **-1 / Other**| `Unknown` | Unknown state. |
 
 ### Robot State (`mu_state` / `RobotState`)
@@ -347,12 +348,13 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
   - **Bytes 132 - 133**: Robot Type ID (2 bytes, Short).
   - **Bytes 134 - 137**: Flash Write Counter (4 bytes, Int).
   - **Bytes 138 - 139**: Configured Cycle Time (2 bytes, Short).
-  - **Bytes 140 - 141**: PCB Runtime Hours (2-byte Short).
-  - **Byte 142**: PCB Runtime Minutes (1 byte).
-  - **Bytes 143 - 144**: Impeller Runtime Hours (2-byte Short).
-  - **Byte 145**: Impeller Runtime Minutes (1 byte).
-  - **Bytes 146 - 147**: Turn-On Counter (2-byte Short).
-  - **Bytes 148 - 149**: Not Completed Cycle Counter (2-byte Short).
+  - **Bytes 140**: PCB Runtime Minutes (1 byte).
+  - **Bytes 141 - 142**: PCB Runtime Hours (2-byte Little-Endian Short).
+  - **Byte 143**: Impeller Runtime Minutes (1 byte).
+  - **Bytes 144 - 145**: Impeller Runtime Hours (2-byte Little-Endian Short).
+  - **Byte 146**: Unknown status / padding byte.
+  - **Bytes 147 - 148**: Turn-On Counter (2-byte Little-Endian Short).
+  - **Bytes 149 - 150**: Not Completed Cycle Counter (2-byte Little-Endian Short).
   - **Byte 152**: Robot Software Version Major.
   - **Bytes 153 - 154**: Robot Software Version Minor.
   - **Byte 157**: Active LEDs configuration.
@@ -375,9 +377,9 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
   - **Bytes 15 - 17**: Next scheduled cleaning cycle.
     - Byte 15: Cleaning Mode.
     - Bytes 16-17: Delay/Time to next run in minutes (2-byte Short).
-  - **Bytes 18 - 29**: Currently active fault/error blocks (12 bytes).
-  - **Bytes 30 - 52**: Cleaning modes duration matrix table.
-    - Contains up to 11 entries of 16-bit big-endian shorts representing the cleaning mode durations in minutes. The configured cycle duration of the current run is the duration from this table at the index of `cleaning_mode` (Byte 3).
+  - **Bytes 18 - 30**: Currently active fault/error blocks (13 bytes).
+  - **Bytes 31 - 52**: Cleaning modes duration matrix table.
+    - Contains up to 11 entries of 16-bit little-endian shorts representing the cleaning mode durations in minutes. The configured cycle duration of the current run is the duration from this table at the index of `cleaning_mode - 1` (Byte 3, 1-indexed).
 
 ### Temperature & In-Water Sensor (`temperature`)
 If the unit features `inwat=true` in `pws_features`, this command can read internal environment sensors. If not supported, sending it triggers low-level failures.

@@ -39,6 +39,11 @@ dolphin_ble:
   id: dolphin_bridge
   mac_address: !secret dolphin_mac
   name_filter: !secret dolphin_name_filter
+  time_id: sntp_time
+
+time:
+  - platform: sntp
+    id: sntp_time
 
 text_sensor:
   - platform: dolphin_ble
@@ -84,10 +89,6 @@ sensor:
     kind: filter_state
     name: Filter Clog Level
     unit_of_measurement: "%"
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: is_smart
-    name: Smart Mode Active
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: cycle_duration

@@ -14,6 +14,7 @@
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
+#include "esphome/components/time/real_time_clock.h"
 
 #include "esp_gap_ble_api.h"
 #include "esp_gatt_common_api.h"
@@ -35,6 +36,7 @@ class DolphinBle : public Component {
 
   void set_mac_address(const std::string &mac) { this->mac_address_ = mac; }
   void set_name_filter(const std::string &name) { this->name_filter_ = name; }
+  void set_time_id(time::RealTimeClock *time_id) { this->time_id_ = time_id; }
 
   void set_numeric_sensor(uint8_t kind, sensor::Sensor *sensor);
   void set_text_sensor(uint8_t kind, text_sensor::TextSensor *sensor);
@@ -96,6 +98,7 @@ class DolphinBle : public Component {
   void discover_remote_characteristic_();
   void enable_remote_notifications_();
   void handle_polling_();
+  void send_rtc_time_();
   void send_local_notification_text_(const std::string &text);
   void send_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
                            size_t payload_len, const char *name);
@@ -177,6 +180,8 @@ class DolphinBle : public Component {
   uint32_t last_metadata_poll_{0};
   uint32_t last_status_poll_{0};
   uint32_t last_temp_poll_{0};
+  uint32_t last_rtc_sync_{0};
+  time::RealTimeClock *time_id_{nullptr};
 
   std::string rx_text_buffer_;
   std::string tx_text_buffer_;

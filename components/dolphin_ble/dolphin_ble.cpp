@@ -328,11 +328,39 @@ void DolphinBle::handle_polling_() {
 
   // 3. Poll water temperature sensor every 30 seconds (if capability is supported)
   if (this->in_water_capable_) {
-    if (now - this->last_temp_poll_ >= 30000) {
+    if (this->last_temp_poll_ == 0 || now - this->last_temp_poll_ >= 30000) {
       this->send_local_notification_text_("03:ab03fff809000002ae");
       this->last_temp_poll_ = now;
     }
   }
+
+  // 4. Periodically sync RTC time (every hour)
+  if (this->time_id_ != nullptr) {
+    if (this->last_rtc_sync_ == 0 || now - this->last_rtc_sync_ >= 3600000) {
+      auto rtc_now = this->time_id_->now();
+      if (rtc_now.is_valid()) {
+        this->send_rtc_time_();
+        this->last_rtc_sync_ = now;
+      }
+    }
+  }
+}
+
+void DolphinBle::send_rtc_time_() {
+  if (this->time_id_ == nullptr)
+    return;
+  auto now = this->time_id_->now();
+  if (!now.is_valid())
+    return;
+
+  uint32_t timestamp = now.timestamp;
+  uint8_t payload[4];
+  payload[0] = static_cast<uint8_t>((timestamp >> 24) & 0xFF);
+  payload[1] = static_cast<uint8_t>((timestamp >> 16) & 0xFF);
+  payload[2] = static_cast<uint8_t>((timestamp >> 8) & 0xFF);
+  payload[3] = static_cast<uint8_t>(timestamp & 0xFF);
+
+  this->send_command_frame_(0x09, 0xFFF9, payload, 4, "RealTimeClock");
 }
 
 void DolphinBle::send_local_notification_text_(const std::string &text) {
@@ -759,6 +787,7 @@ std::string DolphinBle::summarize_printable_runs_(const uint8_t *data, size_t le
 std::string DolphinBle::mode_to_string_(uint8_t mode) {
   switch (mode) {
     case 0x00:
+      return "none";
     case 0xfe: // -2 unsigned
       return "empty";
     case 0x01:
@@ -871,7 +900,7 @@ std::string DolphinBle::robot_state_to_string_(uint8_t state) {
 std::string DolphinBle::pws_state_to_string_(uint8_t state) {
   switch (state) {
     case 0x00:
-      return "off";
+      return "on";
     case 0x01:
       return "on";
     case 0x02:
@@ -879,11 +908,13 @@ std::string DolphinBle::pws_state_to_string_(uint8_t state) {
     case 0x03:
       return "hold_delay";
     case 0x04:
-      return "programing";
+      return "programming";
     case 0x05:
       return "on_clean_mode";
     case 0x06:
       return "sleep";
+    case 0x07:
+      return "off";
     default:
       return "unknown";
   }
@@ -934,7 +965,7 @@ void DolphinBle::publish_current_cleaning_mode_(uint8_t mode) {
   this->selected_cleaning_mode_ = mode;
   std::string value = mode_to_string_(mode);
   this->publish_text_(TEXT_CLEANING_MODE, value);
-  if (this->cleaning_mode_select_ != nullptr && value != "unknown")
+  if (this->cleaning_mode_select_ != nullptr && mode >= 1 && mode <= 11)
     this->cleaning_mode_select_->publish_state(value);
 }
 
@@ -990,23 +1021,20 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   if (payload_len >= 52) {
     uint8_t active_mode = payload[3];
     uint16_t duration_mins = 0;
-    if (active_mode < 11) {
-      // Cleaning mode durations table (big-endian shorts in minutes) starts at offset 30
-      duration_mins = read_u16_be_(payload + 30 + active_mode * 2);
+    if (active_mode >= 1 && active_mode <= 11) {
+      // Cleaning mode durations table (little-endian shorts in minutes) starts at offset 31
+      duration_mins = read_u16_le_(payload + 31 + (active_mode - 1) * 2);
     }
     this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(duration_mins * 60));
-  }
-  if (payload_len >= 15) {
-    this->publish_numeric_(NUMERIC_IS_SMART, payload[14] ? 1.0f : 0.0f);
   }
 }
 
 void DolphinBle::publish_temperature_from_frame_(const std::vector<uint8_t> &frame) {
-  if (frame.size() < 17)
+  if (frame.size() < 10)
     return;
   const uint8_t *payload = &frame[7];
   this->publish_text_(TEXT_IN_WATER_STATUS, water_status_to_string_(payload[0]));
-  
+
   int16_t temperature = static_cast<int16_t>(read_u16_be_(payload + 1));
   if (temperature == 0xFFFF || temperature == 0x3E9 || temperature == 0x3EA || temperature < 0) {
     this->publish_numeric_(NUMERIC_TEMPERATURE, NAN);
@@ -1024,21 +1052,21 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
   if (payload_len >= 172) {
     this->publish_numeric_(NUMERIC_ROBOT_TYPE, read_u16_le_(payload + 132));
     this->publish_numeric_(NUMERIC_MU_FLASH_WRITE_COUNTER, read_u32_le_(payload + 134));
-    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_le_(payload + 146));
-    this->publish_numeric_(NUMERIC_MU_NOT_COMPLETED_CYCLES, read_u16_le_(payload + 148));
+    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_le_(payload + 147));
+    this->publish_numeric_(NUMERIC_MU_NOT_COMPLETED_CYCLES, read_u16_le_(payload + 149));
     this->publish_numeric_(NUMERIC_MU_CLIMB_PERIOD, payload[170]);
 
     // Combined float runtime hours (hours + minutes/60)
-    uint16_t pcb_hrs = read_u16_le_(payload + 140);
+    uint16_t pcb_hrs = read_u16_le_(payload + 141);
     if (pcb_hrs == 0xFFFF) {
       this->publish_numeric_(NUMERIC_MU_PCB_RUNTIME, NAN);
     } else {
-      uint8_t pcb_mins = payload[142];
+      uint8_t pcb_mins = payload[140];
       this->publish_numeric_(NUMERIC_MU_PCB_RUNTIME, static_cast<float>(pcb_hrs) + static_cast<float>(pcb_mins) / 60.0f);
     }
 
-    uint16_t imp_hrs = read_u16_le_(payload + 143);
-    uint8_t imp_mins = payload[145];
+    uint16_t imp_hrs = read_u16_le_(payload + 144);
+    uint8_t imp_mins = payload[143];
     this->publish_numeric_(NUMERIC_MU_IMPELLER_RUNTIME, static_cast<float>(imp_hrs) + static_cast<float>(imp_mins) / 60.0f);
 
     // Combined Software Version String
