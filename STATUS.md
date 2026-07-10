@@ -89,3 +89,12 @@ These are explicit investigation items. Each one needs packet evidence and a rep
 - **Therefore:** `PWS State == Cleaning` is a strong primary indicator for the power supply cycle, but it should be corroborated with `Robot State` and, when available, In-Water status. `PWS State` alone can be transitional or stale if the MU is disconnected.
 - **Current implementation gap:** There is no dedicated binary `Cleaning in Progress` sensor that combines these fields. The text sensors are published independently, so Home Assistant automations currently have to interpret them.
 - **Next proof required:** Capture state transitions for start, mapping, active cleaning, finish, stop, and disconnected cases. Then define a derived binary sensor with explicit semantics rather than making users infer state from text.
+
+### ISSUE-7: MU PCB/impeller runtime units or layout are not physically credible
+
+- **Observed:** The current combined runtime sensors report implausibly large hour totals.
+- **protocol evidence:** `protocol field definitions` names separate fields `pcb_hours` (bytes 140–141), `pcb_minutes` (byte 142), `impeller_hours` (bytes 143–144), and `impeller_minutes` (byte 145). The protocol parser implementation parses the two-hour fields as 16-bit integers and does not convert them from minutes.
+- **Captured bytes:** The prior MU log for payload offsets 130–159 was `000000a00f4f4300007800390325390322c50141000216020000a2ffffff`. At the protocol-defined ranges this is PCB `00 39`, PCB minutes `03`, impeller `25 39`, impeller minutes `03`.
+- **Additional observation:** `MU Not Completed Cycles` has also appeared as `16897` (`0x4201`). For bytes `01 42`, big-endian is `322`, while little-endian is `16897`; the latter is not credible. This demonstrates that the protocol's generic MU endian behavior cannot be blindly applied to this device.
+- **Conflict:** Little-endian at the protocol-defined runtime ranges gives PCB `14592 h` and impeller `14629 h`; big-endian gives PCB `57 h` and impeller `9529 h`. The previous adjacent-byte interpretation yielded roughly `825 h`, which is numerically more plausible but is not supported by the protocol ranges. This is therefore not safe to “fix” by another endian or ±1 change.
+- **Next proof required:** Obtain a fresh full MU response from this exact PWS and compare it with the official app’s displayed diagnostics or a known runtime change. Until that comparison exists, the runtime sensors must be treated as unverified and should not be presented as accurate hours.
