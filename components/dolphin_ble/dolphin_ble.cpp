@@ -1022,8 +1022,8 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
     uint8_t active_mode = payload[3];
     uint16_t duration_mins = 0;
     if (active_mode >= 1 && active_mode <= 11) {
-      // Cleaning mode durations table (big-endian shorts in minutes) starts at offset 31
-      duration_mins = read_u16_be_(payload + 31 + (active_mode - 1) * 2);
+      // Cleaning mode durations table (big-endian shorts in minutes) starts at offset 30
+      duration_mins = read_u16_be_(payload + 30 + (active_mode - 1) * 2);
     }
     this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(duration_mins * 60));
   }

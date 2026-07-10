@@ -225,6 +225,20 @@ Configures the schedule for Monday through Sunday.
     - Byte 4: Cleaning Mode (`CleanMode` value)
 - **Envelope Command**: `03:ab03fff9450025[repeat][trigger][7x5_daily_blocks][checksum]`
 
+### Set Single Day Weekly Program
+Configures the schedule for a single day of the week.
+- **Opcode**: `47`
+- **Destination**: `FFF9`
+- **Payload**: 7 bytes:
+  - Byte 0: Repeat Schedule (`00` = Repeat weekly, `01` = Run once and disable)
+  - Byte 1: Trigger Source (integer)
+  - Byte 2: Day Index / ID (`1` to `7`, representing Monday to Sunday)
+  - Byte 3: Enabled (`01` = Active, `00` = Off)
+  - Byte 4: Hour (0-23, or -1/`FF` if disabled)
+  - Byte 5: Minute (0-59, or -1/`FF` if disabled)
+  - Byte 6: Cleaning Mode (`CleanMode` value)
+- **Envelope Command**: `03:ab03fff9470007[repeat][trigger][day][enabled][hour][minute][mode][checksum]`
+
 ---
 
 ## 5. Wi-Fi Provisioning & Connection Diagnostics
@@ -370,16 +384,16 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
   - **Byte 2**: `filter_state` (Filter bag clog byte).
   - **Byte 3**: `cleaning_mode` (Active `CleanMode` value).
   - **Bytes 4 - 13**: Active Cleaning Cycle Progress.
-    - Bytes 4-5: Cycle Mode / Config index (`cycleType`), 16-bit little-endian.
-    - Bytes 6-9: Monotonic PWS start uptime in seconds (`cycleStartTime`), 32-bit little-endian.
-    - Bytes 10-13: UTC cycle start time Unix timestamp in seconds (`cycleStartTimeUTC`), 32-bit little-endian.
+    - Bytes 4-5: Cycle Mode / Config index (`cycleType`), 16-bit big-endian.
+    - Bytes 6-9: Monotonic PWS start uptime in seconds (`cycleStartTime`), 32-bit big-endian.
+    - Bytes 10-13: UTC cycle start time Unix timestamp in seconds (`cycleStartTimeUTC`), 32-bit big-endian.
   - **Byte 14**: `is_smart` feature flag (Boolean, `00` or `01`).
   - **Bytes 15 - 17**: Next scheduled cleaning cycle.
     - Byte 15: Cleaning Mode.
     - Bytes 16-17: Delay/Time to next run in minutes (2-byte Short).
-  - **Bytes 18 - 30**: Currently active fault/error blocks (13 bytes).
-  - **Bytes 31 - 52**: Cleaning modes duration matrix table.
-    - Contains up to 11 entries of 16-bit little-endian shorts representing the cleaning mode durations in minutes. The configured cycle duration of the current run is the duration from this table at the index of `cleaning_mode - 1` (Byte 3, 1-indexed).
+  - **Bytes 18 - 29**: Currently active fault/error blocks (12 bytes).
+  - **Bytes 30 - 51**: Cleaning modes duration matrix table.
+    - Contains up to 11 entries of 16-bit big-endian shorts representing the cleaning mode durations in minutes. The configured cycle duration of the current run is the duration from this table at the index of `cleaning_mode - 1` (Byte 3, 1-indexed).
 
 ### Temperature & In-Water Sensor (`temperature`)
 If the unit features `inwat=true` in `pws_features`, this command can read internal environment sensors. If not supported, sending it triggers low-level failures.
