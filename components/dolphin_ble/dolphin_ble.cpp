@@ -43,7 +43,6 @@ void DolphinBle::setup() {
     this->mark_failed();
     return;
   }
-
 }
 
 void DolphinBle::loop() {
@@ -809,6 +808,7 @@ std::string DolphinBle::summarize_printable_runs_(const uint8_t *data, size_t le
 std::string DolphinBle::mode_to_string_(uint8_t mode) {
   switch (mode) {
     case 0x00:
+    case 0xfe: // -2 unsigned
       return "empty";
     case 0x01:
       return "regular";
@@ -861,7 +861,7 @@ uint8_t DolphinBle::mode_from_string_(const std::string &mode) {
   if (mode == "pick_up" || mode == "pickup")
     return 0x0b;
   if (mode == "empty")
-    return 0x00;
+    return 0xfe; // -2
   return 0x01;
 }
 
@@ -957,6 +957,18 @@ std::string DolphinBle::water_status_to_string_(uint8_t state) {
   }
 }
 
+std::string DolphinBle::filter_status_to_string_(uint8_t state) {
+  if (state == 0) return "empty";
+  if (state >= 1 && state <= 25) return "partially_full";
+  if (state >= 26 && state <= 74) return "getting_full";
+  if (state >= 75 && state <= 99) return "almost_full";
+  if (state == 100) return "full";
+  if (state == 101) return "fault";
+  if (state == 102) return "not_available";
+  if (state == 255) return "unknown";
+  return "unknown";
+}
+
 void DolphinBle::publish_numeric_(uint8_t kind, float value) {
   if (kind < this->numeric_sensors_.size() && this->numeric_sensors_[kind] != nullptr)
     this->numeric_sensors_[kind]->publish_state(value);
@@ -1001,20 +1013,21 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   this->publish_text_(TEXT_ROBOT_STATE, robot_state_to_string_(payload[0]));
   this->publish_text_(TEXT_PWS_STATE, pws_state_to_string_(payload[1]));
   this->publish_numeric_(NUMERIC_FILTER_STATE, payload[2]);
+  this->publish_text_(TEXT_FILTER_STATUS, filter_status_to_string_(payload[2]));
   this->publish_current_cleaning_mode_(payload[3]);
 
   std::string status_summary = "robot=" + robot_state_to_string_(payload[0]);
   status_summary += " pws=" + pws_state_to_string_(payload[1]);
-  status_summary += " filter=" + std::to_string(payload[2]);
+  status_summary += " filter=" + filter_status_to_string_(payload[2]);
   status_summary += " mode=" + mode_to_string_(payload[3]);
 
   if (payload_len >= 14) {
     this->publish_numeric_(NUMERIC_CYCLE_TIME, read_u16_be_(payload + 4));
-    this->publish_numeric_(NUMERIC_START_CYCLE_TIME, read_u32_be_(payload + 6));
-    this->publish_numeric_(NUMERIC_CYCLE_START_UTC, read_u32_be_(payload + 10));
+    this->publish_numeric_(NUMERIC_CYCLE_DURATION, read_u32_be_(payload + 6));
+    this->publish_numeric_(NUMERIC_CYCLE_TIME_REMAINING, read_u32_be_(payload + 10));
     std::string cycle_summary = "cycle=0x" + hex_string_(payload + 4, 2);
-    cycle_summary += " start=" + std::to_string(read_u32_be_(payload + 6));
-    cycle_summary += " utc=" + std::to_string(read_u32_be_(payload + 10));
+    cycle_summary += " duration=" + std::to_string(read_u32_be_(payload + 6)) + "s";
+    cycle_summary += " remaining=" + std::to_string(read_u32_be_(payload + 10)) + "s";
     this->publish_text_(TEXT_CYCLE_INFO_SUMMARY, cycle_summary);
   }
   if (payload_len >= 15) {
@@ -1023,7 +1036,7 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   }
   if (payload_len >= 18) {
     std::string next_cycle = "mode=" + mode_to_string_(payload[15]);
-    next_cycle += " duration=" + std::to_string(read_u16_be_(payload + 16));
+    next_cycle += " duration=" + std::to_string(read_u16_be_(payload + 16)) + "m";
     next_cycle += " raw=" + hex_string_(payload + 15, 3);
     this->publish_text_(TEXT_NEXT_CYCLE_INFO_SUMMARY, next_cycle);
   }
@@ -1059,9 +1072,15 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
     this->publish_numeric_(NUMERIC_ROBOT_TYPE, read_u16_be_(payload + 132));
     this->publish_numeric_(NUMERIC_MU_FLASH_WRITE_COUNTER, read_u32_be_(payload + 134));
     this->publish_numeric_(NUMERIC_MU_CYCLE_TIME, read_u16_be_(payload + 138));
+    this->publish_numeric_(NUMERIC_MU_PCB_HOURS, read_u16_be_(payload + 140));
+    this->publish_numeric_(NUMERIC_MU_PCB_MINUTES, payload[142]);
+    this->publish_numeric_(NUMERIC_MU_IMPELLER_HOURS, read_u16_be_(payload + 143));
+    this->publish_numeric_(NUMERIC_MU_IMPELLER_MINUTES, payload[145]);
+    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_be_(payload + 146));
+    this->publish_numeric_(NUMERIC_MU_NOT_COMPLETED_CYCLES, read_u16_be_(payload + 148));
     this->publish_numeric_(NUMERIC_MU_SW_VERSION_MAJOR, payload[152]);
     this->publish_numeric_(NUMERIC_MU_SW_VERSION_MINOR, read_u16_be_(payload + 153));
-    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_be_(payload + 146));
+    this->publish_numeric_(NUMERIC_MU_CLIMB_PERIOD, payload[170]);
   }
 }
 
@@ -1070,9 +1089,38 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
     return;
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
+  this->publish_text_(TEXT_SM_DATA_RAW, hex_string_(payload, payload_len));
+
   std::string printable_runs = summarize_printable_runs_(payload, payload_len, 4, 32);
   this->publish_text_(TEXT_SM_SUMMARY, printable_runs);
   ESP_LOGI(TAG, "SM printable summary: %s", printable_runs.c_str());
+
+  if (payload_len >= 151) {
+    int16_t timezone = static_cast<int16_t>(read_u16_be_(payload + 63));
+    this->publish_numeric_(NUMERIC_SM_TIMEZONE, timezone);
+
+    uint8_t qf = payload[65];
+    std::string qf_str;
+    if (qf & 0x01) qf_str += "WeeklyTimer1D ";
+    if (qf & 0x02) qf_str += "WeeklyTimer2D ";
+    if (qf & 0x04) qf_str += "WeeklyTimer3D ";
+    if (qf & 0x08) qf_str += "DelayTimer ";
+    if (qf & 0x10) qf_str += "FilterLED ";
+    if (qf & 0x20) qf_str += "FloorOnly ";
+    if (qf & 0x40) qf_str += "FastMode ";
+    if (qf & 0x80) qf_str += "PickupMode ";
+    if (!qf_str.empty())
+      qf_str.pop_back();
+    this->publish_text_(TEXT_QUICK_FEATURES, qf_str);
+
+    std::string ssid;
+    for (size_t i = 118; i <= 150 && i < payload_len; i++) {
+      if (payload[i] == '\0')
+        break;
+      ssid.push_back(static_cast<char>(payload[i]));
+    }
+    this->publish_text_(TEXT_WIFI_SSID, ssid);
+  }
 }
 
 void DolphinBleButton::press_action() {

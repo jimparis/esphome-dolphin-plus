@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <array>
 #include <initializer_list>
 #include <string>
@@ -24,8 +25,8 @@ namespace dolphin_ble {
 
 class DolphinBle : public Component {
  public:
-  static constexpr size_t NUM_NUMERIC_SENSORS = 16;
-  static constexpr size_t NUM_TEXT_SENSORS = 19;
+  static constexpr size_t NUM_NUMERIC_SENSORS = 23;
+  static constexpr size_t NUM_TEXT_SENSORS = 22;
 
   void setup() override;
   void loop() override;
@@ -58,8 +59,8 @@ class DolphinBle : public Component {
     NUMERIC_FILTER_STATE = 1,
     NUMERIC_IS_SMART = 2,
     NUMERIC_CYCLE_TIME = 3,
-    NUMERIC_START_CYCLE_TIME = 4,
-    NUMERIC_CYCLE_START_UTC = 5,
+    NUMERIC_CYCLE_DURATION = 4,
+    NUMERIC_CYCLE_TIME_REMAINING = 5,
     NUMERIC_TEMPERATURE = 6,
     NUMERIC_TEMPERATURE_TIMESTAMP = 7,
     NUMERIC_MEASURING = 8,
@@ -70,6 +71,13 @@ class DolphinBle : public Component {
     NUMERIC_MU_SW_VERSION_MINOR = 13,
     NUMERIC_MU_FLASH_WRITE_COUNTER = 14,
     NUMERIC_MU_CYCLE_TIME = 15,
+    NUMERIC_MU_PCB_HOURS = 16,
+    NUMERIC_MU_PCB_MINUTES = 17,
+    NUMERIC_MU_IMPELLER_HOURS = 18,
+    NUMERIC_MU_IMPELLER_MINUTES = 19,
+    NUMERIC_MU_NOT_COMPLETED_CYCLES = 20,
+    NUMERIC_MU_CLIMB_PERIOD = 21,
+    NUMERIC_SM_TIMEZONE = 22,
   };
 
   enum TextSensorKind : uint8_t {
@@ -92,6 +100,9 @@ class DolphinBle : public Component {
     TEXT_SM_SUMMARY = 16,
     TEXT_FAULTS_SUMMARY = 17,
     TEXT_CLEANING_MODES_SUMMARY = 18,
+    TEXT_FILTER_STATUS = 19,
+    TEXT_WIFI_SSID = 20,
+    TEXT_QUICK_FEATURES = 21,
   };
 
   enum ManualDriveButtonKind : uint8_t {
@@ -153,6 +164,7 @@ class DolphinBle : public Component {
   static std::string robot_state_to_string_(uint8_t state);
   static std::string pws_state_to_string_(uint8_t state);
   static std::string water_status_to_string_(uint8_t state);
+  static std::string filter_status_to_string_(uint8_t state);
   static std::string hex_string_(const uint8_t *data, size_t len);
   static std::string summarize_printable_runs_(const uint8_t *data, size_t len, size_t max_runs,
                                                size_t max_run_len);

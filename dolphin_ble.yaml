@@ -103,6 +103,18 @@ text_sensor:
     dolphin_ble_id: dolphin_bridge
     kind: cleaning_modes_summary
     name: Cleaning Modes
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: filter_status
+    name: Filter Status
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: wifi_ssid
+    name: WiFi SSID
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: quick_features
+    name: Quick Features
 
 sensor:
   - platform: dolphin_ble
@@ -119,12 +131,12 @@ sensor:
     name: Cycle Time
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: start_cycle_time
-    name: Cycle Start Time
+    kind: cycle_duration
+    name: Configured Cycle Duration
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: cycle_start_utc
-    name: Cycle Start UTC
+    kind: cycle_time_remaining
+    name: Cycle Time Remaining
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: temperature
@@ -165,6 +177,34 @@ sensor:
     dolphin_ble_id: dolphin_bridge
     kind: mu_cycle_time
     name: MU Cycle Time
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_pcb_hours
+    name: MU PCB Hours
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_pcb_minutes
+    name: MU PCB Minutes
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_impeller_hours
+    name: MU Impeller Hours
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_impeller_minutes
+    name: MU Impeller Minutes
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_not_completed_cycles
+    name: MU Not Completed Cycles
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_climb_period
+    name: MU Climb Period
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: sm_timezone
+    name: SM Timezone
 
 button:
   - platform: dolphin_ble
