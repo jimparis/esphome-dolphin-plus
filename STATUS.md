@@ -43,6 +43,18 @@ The checked-in `protocol documentation` is the authority for these offsets. Its 
 
 These are explicit investigation items. Each one needs packet evidence and a reproducible before/after observation before it is moved to resolved. In particular, do not change the epoch interpretation again without recording the raw bytes and comparing all candidate fields.
 
+## 5. Phone-App Ground Truth (2026-07-10)
+
+The official phone app provided useful behavioral anchors before the ESP32 was reconnected:
+
+- Device presentation: `Crazy Climber`; description `DOLPHIN NAUTILUS CC PRO IOT`; PKF `PKF0111`; serial `Z4868YMRBM`; MU serial `Z4868YMR`.
+- Configured schedule: every day at 09:00, for 2 hours.
+- LED: enabled, Disco.
+- Physical power-supply quick button: Weekly timer, Every 2 days. This is the frequency of the cleaning operation launched by holding the physical button for five seconds; it is not the normal weekly schedule itself.
+- Live cycle: at 14:46 the app showed 1% and an estimated finish at 16:44; at 15:19 it showed 29%. The elapsed-time ratio (33 minutes / 118 minutes) is approximately 28%, strongly confirming a two-hour configured duration and an elapsed-time-based progress indicator.
+
+When the ESP32 is reconnected, preserve complete raw MU, SM, and status frames. The first comparisons should be SM cycle-time bytes 217–236 against the app's 2-hour setting, SM weekly bytes 72–107 against 09:00 daily, the quick-button trigger/configuration fields against Every 2 days, and status transitions during an actual start/stop. Do not infer MU units from the old sample alone.
+
 ### ISSUE-1: Configured cycle duration is invalid
 
 - **Observed:** Home Assistant reports `3916800 s` (65,280 minutes / raw `0xff00`), which is not a plausible cleaning duration.
