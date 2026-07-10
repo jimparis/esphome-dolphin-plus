@@ -21,9 +21,9 @@ Important repo files:
 
 Current implementation notes:
 
-- `dolphin_ble.yaml` exposes read state, cleaning controls, and manual drive controls through ESPHome.
-- The bridge sends robot commands as text notifications containing framed hex packets.
-- Manual drive is implemented as a direct `FFF7` command with direction and speed bytes.
+- `dolphin_ble.yaml` exposes structured read states (SSID, timezone, clog percentage, PCB/impeller runtime hours), cleaning controls, and manual drive controls through ESPHome.
+- All polling coordination is handled natively in the C++ component: it sequentially requests static metadata on connection (PWS features, MU stats, SM config) and then transitions to periodic polling of status (2s) and temperature (30s, if supported). No raw probes are required in the YAML.
+- Manual drive is implemented as a direct `FFF7` command with direction and speed bytes. Steering commands are sent automatically whenever the direction select or speed number entities change in Home Assistant.
 - TODO: split this into a public importable ESPHome template and a private local development overlay once the config stabilizes.
 
 Commit hygiene:
