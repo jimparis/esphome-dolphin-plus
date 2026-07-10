@@ -169,3 +169,17 @@ number:
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     name: Manual Drive Speed
+
+light:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    name: LED Light
+    effects:
+      - lambda:
+          name: "Blinking"
+          update_interval: 10s
+          lambda: ""
+      - lambda:
+          name: "Disco"
+          update_interval: 10s
+          lambda: ""

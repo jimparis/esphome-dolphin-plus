@@ -787,60 +787,60 @@ std::string DolphinBle::summarize_printable_runs_(const uint8_t *data, size_t le
 std::string DolphinBle::mode_to_string_(uint8_t mode) {
   switch (mode) {
     case 0x00:
-      return "none";
+      return "None";
     case 0xfe: // -2 unsigned
-      return "empty";
+      return "Empty";
     case 0x01:
-      return "regular";
+      return "All Surfaces";
     case 0x02:
-      return "fast";
+      return "Quick Clean";
     case 0x03:
-      return "cove";
+      return "Cove";
     case 0x04:
-      return "floor_only";
+      return "Floor Only";
     case 0x05:
-      return "water_line";
+      return "Water Line";
     case 0x06:
-      return "ultra_clean";
+      return "Ultra Clean";
     case 0x07:
-      return "spot";
+      return "Spot";
     case 0x08:
-      return "wall_only";
+      return "Wall Only";
     case 0x09:
-      return "tic_tac";
+      return "Tic Tac";
     case 0x0a:
-      return "custom";
+      return "Custom";
     case 0x0b:
-      return "pickup";
+      return "Pickup";
     default:
-      return "unknown";
+      return "Unknown";
   }
 }
 
 uint8_t DolphinBle::mode_from_string_(const std::string &mode) {
-  if (mode == "regular" || mode == "all_surfaces" || mode == "all")
+  if (mode == "All Surfaces")
     return 0x01;
-  if (mode == "fast" || mode == "short")
+  if (mode == "Quick Clean")
     return 0x02;
-  if (mode == "cove")
+  if (mode == "Cove")
     return 0x03;
-  if (mode == "floor_only" || mode == "floor")
+  if (mode == "Floor Only")
     return 0x04;
-  if (mode == "water_line" || mode == "water")
+  if (mode == "Water Line")
     return 0x05;
-  if (mode == "ultra_clean" || mode == "ultra")
+  if (mode == "Ultra Clean")
     return 0x06;
-  if (mode == "spot")
+  if (mode == "Spot")
     return 0x07;
-  if (mode == "wall_only" || mode == "wall" || mode == "walls")
+  if (mode == "Wall Only")
     return 0x08;
-  if (mode == "tic_tac" || mode == "tictac")
+  if (mode == "Tic Tac")
     return 0x09;
-  if (mode == "custom")
+  if (mode == "Custom")
     return 0x0a;
-  if (mode == "pick_up" || mode == "pickup")
+  if (mode == "Pickup")
     return 0x0b;
-  if (mode == "empty")
+  if (mode == "Empty")
     return 0xfe;
   return 0x01;
 }
@@ -848,28 +848,28 @@ uint8_t DolphinBle::mode_from_string_(const std::string &mode) {
 std::string DolphinBle::direction_to_string_(uint8_t direction) {
   switch (direction) {
     case 0x01:
-      return "stop";
+      return "Stop";
     case 0x02:
-      return "forward";
+      return "Forward";
     case 0x03:
-      return "backward";
+      return "Backward";
     case 0x04:
-      return "right";
+      return "Right";
     case 0x05:
-      return "left";
+      return "Left";
     default:
-      return "stop";
+      return "Stop";
   }
 }
 
 uint8_t DolphinBle::direction_from_string_(const std::string &direction) {
-  if (direction == "forward")
+  if (direction == "Forward")
     return 0x02;
-  if (direction == "backward")
+  if (direction == "Backward")
     return 0x03;
-  if (direction == "right")
+  if (direction == "Right")
     return 0x04;
-  if (direction == "left")
+  if (direction == "Left")
     return 0x05;
   return 0x01;
 }
@@ -877,65 +877,65 @@ uint8_t DolphinBle::direction_from_string_(const std::string &direction) {
 std::string DolphinBle::robot_state_to_string_(uint8_t state) {
   switch (state) {
     case 0x00:
-      return "init";
+      return "Idle";
     case 0x01:
-      return "mapping";
+      return "Mapping";
     case 0x02:
-      return "cleaning";
+      return "Cleaning";
     case 0x03:
-      return "recovery";
+      return "Recovery";
     case 0x04:
-      return "finished";
+      return "Finished";
     case 0x05:
-      return "programing";
+      return "Programming";
     case 0x06:
-      return "fault";
+      return "Fault";
     case 0x07:
-      return "not_connected";
+      return "Not Connected";
     default:
-      return "unknown";
+      return "Unknown";
   }
 }
 
 std::string DolphinBle::pws_state_to_string_(uint8_t state) {
   switch (state) {
     case 0x00:
-      return "on";
+      return "Active";
     case 0x01:
-      return "on";
+      return "Active";
     case 0x02:
-      return "hold_weekly";
+      return "Hold (Weekly)";
     case 0x03:
-      return "hold_delay";
+      return "Hold (Delay)";
     case 0x04:
-      return "programming";
+      return "Programming";
     case 0x05:
-      return "on_clean_mode";
+      return "Cleaning";
     case 0x06:
-      return "sleep";
+      return "Sleep";
     case 0x07:
-      return "off";
+      return "Standby";
     default:
-      return "unknown";
+      return "Unknown";
   }
 }
 
 std::string DolphinBle::water_status_to_string_(uint8_t state) {
   switch (state) {
     case 0x00:
-      return "false";
+      return "Not In Water";
     case 0x01:
-      return "true";
+      return "In Water";
     case 0x02:
-      return "unknown";
+      return "Unknown";
     case 0x03:
-      return "error";
+      return "Error";
     case 0x04:
-      return "no_p_baro";
+      return "No Barometer";
     case 0x0f:
-      return "loading";
+      return "Loading";
     default:
-      return "NA";
+      return "N/A";
   }
 }
 
@@ -1015,15 +1015,15 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   this->publish_current_cleaning_mode_(payload[3]);
 
   if (payload_len >= 14) {
-    uint32_t start_time = read_u32_le_(payload + 10);
+    uint32_t start_time = read_u32_be_(payload + 10);
     this->publish_numeric_(NUMERIC_CYCLE_START_TIME, static_cast<float>(start_time));
   }
   if (payload_len >= 52) {
     uint8_t active_mode = payload[3];
     uint16_t duration_mins = 0;
     if (active_mode >= 1 && active_mode <= 11) {
-      // Cleaning mode durations table (little-endian shorts in minutes) starts at offset 31
-      duration_mins = read_u16_le_(payload + 31 + (active_mode - 1) * 2);
+      // Cleaning mode durations table (big-endian shorts in minutes) starts at offset 31
+      duration_mins = read_u16_be_(payload + 31 + (active_mode - 1) * 2);
     }
     this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(duration_mins * 60));
   }
@@ -1081,6 +1081,31 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
     char ver_buf[16];
     std::snprintf(ver_buf, sizeof(ver_buf), "%d.%d", major, minor);
     this->publish_text_(TEXT_MU_SW_VERSION, ver_buf);
+
+    // Parse active LED configuration from byte 157
+    uint8_t led_val = payload[157];
+    ESP_LOGD(TAG, "Telemetry LED status byte (offset 157): 0x%02X", led_val);
+    if (this->led_light_ != nullptr) {
+      bool led_on = (led_val != 0);
+      std::string led_effect = "None";
+      if (led_val == 1) {
+        led_effect = "Blinking";
+      } else if (led_val == 3) {
+        led_effect = "Disco";
+      }
+
+      this->is_telemetry_sync_ = true;
+      auto call = this->led_light_->make_call();
+      call.set_state(led_on);
+      if (led_on) {
+        call.set_effect(led_effect);
+        if (this->led_light_->remote_values.get_brightness() == 0.0f) {
+          call.set_brightness(1.0f);
+        }
+      }
+      call.perform();
+      this->is_telemetry_sync_ = false;
+    }
   }
 }
 
@@ -1199,6 +1224,33 @@ void DolphinBleNumber::control(float value) {
     return;
   this->parent_->set_manual_drive_speed(value);
   this->publish_state(value);
+}
+
+void DolphinBle::write_led_state(light::LightState *state) {
+  if (this->is_telemetry_sync_) {
+    return;
+  }
+
+  light::LightColorValues values = state->current_values;
+  bool enabled = values.is_on();
+  float brightness = values.get_brightness(); // 0.0 to 1.0
+  uint8_t intensity = static_cast<uint8_t>(std::round(brightness * 100.0f));
+
+  // Determine pattern mode from effect
+  std::string effect = state->get_effect_name();
+  uint8_t mode = 0x02; // Default: Constant
+  if (effect == "Blinking") {
+    mode = 0x01;
+  } else if (effect == "Disco") {
+    mode = 0x03;
+  }
+
+  ESP_LOGI(TAG, "Setting LED: enabled=%d, intensity=%d, mode=%d (effect=%s)",
+           enabled, intensity, mode, effect.c_str());
+
+  // Send the command
+  uint8_t enabled_byte = enabled ? 0x01 : 0x00;
+  this->send_command_frame_(0x10, 0xFFF7, {enabled_byte, intensity, mode}, "led_control");
 }
 
 }  // namespace dolphin_ble

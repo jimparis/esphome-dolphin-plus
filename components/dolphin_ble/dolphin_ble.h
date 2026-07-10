@@ -15,6 +15,8 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/time/real_time_clock.h"
+#include "esphome/components/light/light_output.h"
+#include "esphome/components/light/light_state.h"
 
 #include "esp_gap_ble_api.h"
 #include "esp_gatt_common_api.h"
@@ -43,6 +45,8 @@ class DolphinBle : public Component {
   void set_cleaning_mode_select(select::Select *select);
   void set_manual_drive_direction_select(select::Select *select);
   void set_manual_drive_speed(float speed);
+  void set_led_light(light::LightState *light) { this->led_light_ = light; }
+  void write_led_state(light::LightState *state);
   void press_start_cleaning();
   void press_stop_cleaning();
   void press_pickup_mode();
@@ -195,6 +199,8 @@ class DolphinBle : public Component {
   uint8_t selected_cleaning_mode_{1};
   uint8_t selected_manual_drive_direction_{1};
   float selected_manual_drive_speed_{50.0f};
+  light::LightState *led_light_{nullptr};
+  bool is_telemetry_sync_{false};
 };
 
 class DolphinBleButton : public button::Button {
@@ -226,6 +232,21 @@ class DolphinBleNumber : public number::Number {
  protected:
   void control(float value) override;
 
+  DolphinBle *parent_;
+};
+
+class DolphinBleLight : public Component, public light::LightOutput {
+ public:
+  explicit DolphinBleLight(DolphinBle *parent) : parent_(parent) {}
+  light::LightTraits get_traits() override {
+    auto traits = light::LightTraits();
+    traits.set_supported_color_modes({light::ColorMode::BRIGHTNESS});
+    return traits;
+  }
+  void write_state(light::LightState *state) override {
+    this->parent_->write_led_state(state);
+  }
+ protected:
   DolphinBle *parent_;
 };
 

@@ -15,21 +15,19 @@ KINDS = {
 
 OPTIONS = {
     0: [
-        "empty",
-        "all",
-        "short",
-        "cove",
-        "floor",
-        "water",
-        "ultra",
-        "spot",
-        "wall",
-        "tictac",
-        "custom",
-        "pickup",
-        "unknown",
+        "All Surfaces",
+        "Quick Clean",
+        "Cove",
+        "Floor Only",
+        "Water Line",
+        "Ultra Clean",
+        "Spot",
+        "Wall Only",
+        "Tic Tac",
+        "Custom",
+        "Pickup",
     ],
-    1: ["stop", "forward", "backward", "right", "left"],
+    1: ["Stop", "Forward", "Backward", "Right", "Left"],
 }
 
 dolphin_ble_ns = cg.esphome_ns.namespace("dolphin_ble")
