@@ -1,6 +1,6 @@
 # Agent Context
 
-This repository is a local integration development and ESPHome prototype for connecting to a Maytronics Dolphin Plus power supply over BLE.
+This repository contains an ESPHome integration for connecting to a Maytronics Dolphin Plus power supply over BLE.
 
 Working assumptions:
 
@@ -16,7 +16,7 @@ Important repo files:
 
 - `dolphin_ble.yaml`: ESPHome config.
 - `components/dolphin_ble/`: local ESPHome external component.
-- `PROTOCOL.md`: documented BLE sequence and UUIDs.
+- `PROTOCOL.md`: BLE sequence, packet formats, and UUIDs.
 - `Makefile`: common build, flash, and log commands.
 
 Current implementation notes:

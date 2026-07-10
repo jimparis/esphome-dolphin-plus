@@ -993,9 +993,9 @@ void DolphinBle::publish_pws_features_from_frame_(const std::vector<uint8_t> &fr
   if (payload_len < 4)
     return;
 
-  // The first payload byte is the response ACK. The protocol's data starts at
-  // payload[1], so the feature bitfield is raw payload[3].
-  // LSB-first bit string mapping of mData[2]:
+  // The first payload byte is the response ACK, so the feature bitfield is
+  // raw payload[3].
+  // LSB-first bit mapping of data byte 2:
   // bit 0: Network Sensing (WiFi support)
   // bit 1: In-Water capability
   // bit 2: Cellular support
@@ -1026,9 +1026,8 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
 
-  // The first status payload byte is the response ACK.  The protocol's mData
-  // starts at raw payload[1], so all system_status fields are shifted by one
-  // relative to the raw ESPHome frame.
+  // The first status payload byte is the response ACK. All system_status
+  // fields therefore start one byte later in the raw ESPHome frame.
   this->publish_text_(TEXT_ROBOT_STATE, robot_state_to_string_(payload[1]));
   this->publish_text_(TEXT_PWS_STATE, pws_state_to_string_(payload[2]));
   uint8_t filter_state = payload[3];
@@ -1038,9 +1037,9 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   this->publish_current_cleaning_mode_(payload[4]);
 
   if (payload_len >= 14) {
-    // protocol mData cycle_info: bytes 0-1 are cycleTime, 2-5 are device
-    // uptime, and 6-9 are cycleStartTimeUTC.  With the ACK at raw payload[0],
-    // the UTC field is raw payload bytes 11-14.
+    // Cycle information contains cycle type/time, device uptime, and UTC
+    // cycle start time. With the ACK at raw payload[0], the UTC field is raw
+    // payload bytes 11-14.
     uint32_t start_time = read_u32_be_(payload + 11);
     bool cycle_active = payload[2] == 0x05 || payload[1] == 0x01 || payload[1] == 0x02 || payload[1] == 0x03;
     bool timestamp_sane = start_time >= 1577836800UL && start_time <= 4102444800UL;
@@ -1083,7 +1082,7 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
   size_t payload_len = frame.size() - 9;
 
   if (payload_len >= 172) {
-    // The protocol applies these offsets after stripping the response ACK byte.
+    // These offsets apply after stripping the response ACK byte.
     constexpr size_t D = 1;
     this->publish_numeric_(NUMERIC_ROBOT_TYPE, read_u16_le_(payload + 132 + D));
     this->publish_numeric_(NUMERIC_MU_FLASH_WRITE_COUNTER, read_u32_le_(payload + 134 + D));
@@ -1117,9 +1116,9 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
     std::snprintf(ver_buf, sizeof(ver_buf), "%d.%d", major, minor);
     this->publish_text_(TEXT_MU_SW_VERSION, ver_buf);
 
-    // Parse active LED configuration from protocol mData byte 157
+    // Parse active LED configuration from data byte 157.
     uint8_t led_val = payload[157 + D];
-    ESP_LOGD(TAG, "Telemetry LED status byte (mData offset 157): 0x%02X", led_val);
+    ESP_LOGD(TAG, "Telemetry LED status byte (data offset 157): 0x%02X", led_val);
     if (this->led_light_ != nullptr && led_val != 0xff) {
       bool led_on = (led_val != 0);
       std::string led_effect = "None";

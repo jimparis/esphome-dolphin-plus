@@ -1,8 +1,8 @@
-# Maytronics Dolphin Plus BLE Protocol Redux
+# Maytronics Dolphin Plus BLE Protocol
 
-This document outlines the complete documented Bluetooth Low Energy (BLE) protocol for the Maytronics Dolphin Plus robot power supply, based on a observed device behavior.
+This document describes the Bluetooth Low Energy (BLE) protocol used by the Maytronics Dolphin Plus robot power supply, including packet formats, commands, responses, and observed device behavior.
 
-There are two protocol families defined in the app:
+There are two protocol families:
 1. **IOT Protocol Family**: Used by modern Dolphin Plus power supplies (including the unit advertiser name `Z4868YMR`). This is the primary protocol.
 2. **UART/POP Protocol Family**: A secondary protocol used by older or alternative controller variants.
 
@@ -54,7 +54,7 @@ The hexadecimal payload inside the envelope has the following layout:
 | Byte Offset | Field Name | Size (Bytes) | Description / Value |
 | :--- | :--- | :---: | :--- |
 | **0** | SOP Preamble | 1 | Start of Packet. Always `ab`. |
-| **1** | Source (SRC) | 1 | Source identifier. Always `03` for the app/host. |
+| **1** | Source (SRC) | 1 | Source identifier. Always `03` for the host. |
 | **2 - 3** | Destination | 2 | Target component (Big-Endian). E.g. `FFF8` (System), `FFF7` (Drive/LEDs), `FFFD` (Memory blocks). |
 | **4** | Opcode | 1 | Command identifier. |
 | **5 - 6** | Data Length | 2 | Payload size in bytes (Big-Endian). |
@@ -87,7 +87,7 @@ Represents the state of the MU (Motor Unit / Robot).
 | :---: | :--- | :--- |
 | **0** | `init` | Initializing. |
 | **1** | `mapping` | Mapping pool layout. |
-| **2** | `scanning` | Scanning / Cleaning (referred to as `cleaning` in app UI). |
+| **2** | `scanning` | Scanning / Cleaning. |
 | **3** | `recovery` | Moving to pool side for retrieval / pickup. |
 | **4** | `finished` | Cleaning cycle completed successfully. |
 | **5** | `programming` | Programming mode. |
@@ -115,7 +115,7 @@ Represents the chosen cleaning program.
 | **-1 / Other**| `Unknown` | unknown | Unrecognized mode. |
 
 ### Filter Canister Blockage Status (`filter_state` / `FilterStatus`)
-Represents the level of blockage or debris in the filter canister. The app uses three distinct models of resolution depending on robot features (Advanced, Basic, or Full/Not Full).
+Represents the level of blockage or debris in the filter canister. Devices use one of three resolution models depending on available features (Advanced, Basic, or Full/Not Full).
 
 #### Advanced FBI Mapping (Variable Byte Value `0` - `102`):
 - **`0`**: `Empty` ("empty") - Filter is completely clean.
@@ -279,7 +279,7 @@ Configures SSID credentials and password.
 - **Envelope Command**: `03:ab03fffe[payload_length_hex][payload_hex][checksum]`
 
 ### Query Connection Status Diagnostics
-Checks status and captures troubleshooting errors during Wi-Fi/Cloud association.
+Checks status and reports troubleshooting errors during Wi-Fi/Cloud association.
 - **Opcode**: `de`
 - **Destination**: `FFFE`
 - **Response**: The PWS responds with an acknowledgment text frame. If connection fails, the string payload indicates the failure category:
@@ -310,7 +310,7 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
 - **Opcode**: `02`, **Destination**: `FFFD`, **Request Payload**: `02 00 ff`
 - **Envelope Request**: `03:ab03fffd0200030200ff03b0`
 - **Response Layout (256 Bytes parsed dynamically)**:
-  - The first raw response-payload byte is an ACK; the protocol applies these offsets to the remaining `mData` bytes. In raw ESPHome frames, add 1 to every offset below.
+  - The first raw response-payload byte is an ACK; the offsets below refer to the remaining data bytes. In raw ESPHome frames, add 1 to every offset below.
   - **Bytes 38 - 41**: PWS Software Version.
     - Byte 38: Major version (as unsigned int).
     - Byte 39: Minor version (as unsigned int).
@@ -352,7 +352,7 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
 - **Opcode**: `01`, **Destination**: `FFFD`, **Request Payload**: `01 00 ff`
 - **Envelope Request**: `03:ab03fffd0100030100ff03ae`
 - **Response Layout (256 Bytes parsed dynamically)**:
-  - The first raw response-payload byte is an ACK; the protocol applies these offsets to the remaining `mData` bytes. In raw ESPHome frames, add 1 to every offset below.
+  - The first raw response-payload byte is an ACK; the offsets below refer to the remaining data bytes. In raw ESPHome frames, add 1 to every offset below.
   - **Bytes 0 - 119**: Fault History Records. Contains 10 historical fault blocks of 12 bytes each, ordered chronologically (newest first if flipped):
     - Byte 0: Fault Error Code.
     - Bytes 1-2: PCB Operating Hours at fault (2 bytes, Little-Endian Short).
@@ -380,32 +380,32 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
 - **Opcode**: `07`, **Destination**: `FFF8`, **Request Payload**: None
 - **Envelope Request**: `03:ab03fff807000002ac`
 - **Response Layout (53 Bytes)**:
-  - Raw payload byte 0 is the response ACK. The protocol strips it before applying the following `mData` offsets.
-  - **Raw byte 1** (`mData` byte 0): `mu_state` (`RobotState` value).
-  - **Raw byte 2** (`mData` byte 1): `sm_state` (`PwsState` value).
-  - **Raw byte 3** (`mData` byte 2): `filter_state` (Filter bag clog byte).
-  - **Raw byte 4** (`mData` byte 3): `cleaning_mode` (Active `CleanMode` value).
-  - **Raw bytes 5 - 14** (`mData` bytes 4 - 13): Active Cleaning Cycle Progress.
-    - `mData` bytes 4-5: protocol `cycleTime`/cycle-type field, 16-bit big-endian. On the observed PWS this changes as `0x0100`, `0x0200`, etc. with the selected cleaning mode and must not be treated as minutes.
-    - `mData` bytes 6-9: Monotonic PWS start uptime in seconds (`cycleStartTime`), 32-bit big-endian.
-    - `mData` bytes 10-13: UTC cycle start time Unix timestamp in seconds (`cycleStartTimeUTC`), 32-bit big-endian.
-  - **Raw byte 15** (`mData` byte 14): `is_smart` feature flag (Boolean, `00` or `01`).
-  - **Raw bytes 16 - 18** (`mData` bytes 15 - 17): Next scheduled cleaning cycle.
+  - Raw payload byte 0 is the response ACK. The following offsets begin at data byte 0 after that ACK.
+  - **Raw byte 1** (data byte 0): `mu_state` (`RobotState` value).
+  - **Raw byte 2** (data byte 1): `sm_state` (`PwsState` value).
+  - **Raw byte 3** (data byte 2): `filter_state` (Filter bag clog byte).
+  - **Raw byte 4** (data byte 3): `cleaning_mode` (Active `CleanMode` value).
+  - **Raw bytes 5 - 14** (data bytes 4 - 13): Active Cleaning Cycle Progress.
+    - Data bytes 4-5: `cycleTime`/cycle-type field, 16-bit big-endian. On the observed PWS this changes as `0x0100`, `0x0200`, etc. with the selected cleaning mode and must not be treated as minutes.
+    - Data bytes 6-9: Monotonic PWS start uptime in seconds (`cycleStartTime`), 32-bit big-endian.
+    - Data bytes 10-13: UTC cycle start time Unix timestamp in seconds (`cycleStartTimeUTC`), 32-bit big-endian.
+  - **Raw byte 15** (data byte 14): `is_smart` feature flag (Boolean, `00` or `01`).
+  - **Raw bytes 16 - 18** (data bytes 15 - 17): Next scheduled cleaning cycle.
     - Byte 15: Cleaning Mode.
     - Bytes 16-17: Delay/Time to next run in minutes (2-byte Short).
-  - **Raw bytes 19 - 30** (`mData` bytes 18 - 29): Currently active fault/error blocks (12 bytes).
-  - **Raw bytes 31 - 52** (`mData` bytes 30 - 51): Cleaning modes estimate matrix table.
+  - **Raw bytes 19 - 30** (data bytes 18 - 29): Currently active fault/error blocks (12 bytes).
+  - **Raw bytes 31 - 52** (data bytes 30 - 51): Cleaning modes estimate matrix table.
     - Contains 11 entries of 16-bit big-endian minute values, one per cleaning mode. This is the source for the configured duration estimate: entry `cleaning_mode - 1`.
 
-### protocol offset authority
+### Data offset conventions
 
-The offsets above are taken from `protocol documentation`, specifically `res/raw/protocol field definitions` and the parser implementation of `ReadIotStatus`, `ReadIotMuData`, and `ByteExtKt`. The protocol uses half-open ranges (`start` inclusive, `end` exclusive), so a JSON range `start: 63, end: 65` means bytes 63 and 64. For MU multi-byte values, the protocol's `big_indian` flag is counterintuitive: its parser reverses the selected bytes when the flag is false, yielding little-endian values for this command.
+The response layouts use zero-based, half-open ranges where applicable. A range from 63 through 65 therefore contains bytes 63 and 64. For the MU response, multi-byte runtime and counter fields are little-endian.
 
 ### Temperature & In-Water Sensor (`temperature`)
 If the unit features `inwat=true` in `pws_features`, this command can read internal environment sensors. If not supported, sending it triggers low-level failures.
 - **Opcode**: `09`, **Destination**: `FFF8`, **Request Payload**: None
 - **Response Layout (10 Bytes)**:
-  - The first raw response-payload byte is an ACK; the protocol data offsets below begin at raw payload byte 1.
+  - The first raw response-payload byte is an ACK; the data offsets below begin at raw payload byte 1.
   - **Byte 0**: In-Water Status (`00` = Out of water, `01` = In water, `02` = Unknown, `03` = Error, `04` = No Baro/Calibrate, `0f` = Loading).
   - **Bytes 1 - 2**: Water Temperature (16-bit signed Big-Endian Int in Celsius, scaled by 10, e.g. `00 f5` = 24.5°C). Special values `0xFFFF` (`65535`), `0x03E9` (`1001`), and `0x03EA` (`1002`) indicate unavailable or reading-failed states.
   - **Byte 3**: Measuring During Cycle active flag (`01` = Active).
@@ -430,7 +430,7 @@ Flipped byte fields are transported as Little-Endian.
 | :--- | :--- | :---: | :--- |
 | **0 - 3** | SOP Preamble | 4 | Start of Packet. Always `4A 4B 4C 4D` (hex for "JKLM"). |
 | **4** | Destination | 1 | Destination identifier (usually `6C` for SM). |
-| **5** | Source (SRC) | 1 | Source identifier. Always `67` for the app/host. |
+| **5** | Source (SRC) | 1 | Source identifier. Always `67` for the host. |
 | **6 - 7** | Reserve Field | 2 | Fixed padding. Always `0A 0A`. |
 | **8 - 9** | Opcode | 2 | Flipped command code (e.g. `0013` = `13 00` on wire). |
 | **10 - 11** | Data Length | 2 | Flipped payload size in bytes. |
