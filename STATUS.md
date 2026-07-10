@@ -20,7 +20,7 @@ This document provides a summary of the current state of the ESPHome Maytronics 
 - **PWS Features**:
   - Successfully decodes capabilities: `in_water=true`, `cellular=false`.
 - **Cycle Start Time & Configured Cycle Duration**:
-  - protocol analysis now confirms status payload offsets 4–5 for `cycleTime`, 6–9 for device uptime, and 10–13 for UTC Unix time, all big-endian. The protocol adds no epoch offset. The duration estimate matrix begins at payload offset 30, but is separate from `cycleTime`.
+  - The protocol parser strips the first response-payload byte as an ACK before applying offsets. In the raw ESPHome frame, status bytes 5–6 are `cycleTime`, bytes 7–10 are device uptime, and bytes 11–14 are UTC Unix time, all big-endian. The protocol adds no epoch offset. The duration estimate matrix begins at raw payload offset 31, but is separate from `cycleTime`.
 - **LED Light Control (Opcode 0x10)**:
   - Implemented as a custom ESPHome `light` entity which allows toggle, brightness control (0-100% mapped to byte 1), and mode effects (`Blinking` mapped to mode 1, `Constant/None` mapped to mode 2, and `Disco` mapped to mode 3).
 
@@ -74,11 +74,11 @@ When the ESP32 is reconnected, preserve complete raw MU, SM, and status frames. 
 ### ISSUE-3: Cycle start time is about six months in the future / sometimes `NA`
 
 - **Observed:** The displayed timestamp is about six months ahead. Before a cycle starts it has also appeared as `NA`.
-- **What has actually been tried:** The parser was changed repeatedly between raw values, little-endian, big-endian, and a hard-coded `1559347200` epoch offset. protocol parser implementation now conclusively fixes bytes 6–9 as device uptime and bytes 10–13 as `cycleStartTimeUTC`, both big-endian, with no added epoch.
+- **What has actually been tried:** The parser was changed repeatedly between raw values, little-endian, big-endian, and a hard-coded `1559347200` epoch offset. protocol parser implementation fixes the mData offsets at 6–9 for device uptime and 10–13 for `cycleStartTimeUTC`, both big-endian, with no added epoch. The raw-frame ACK was the remaining off-by-one.
 - **Important conclusion:** The six-month error was caused by the unverified epoch addition. The protocol does not add one. If the live value is still wrong after this correction, the remaining question is device clock synchronization—not adjacent status-byte selection.
-- **Current correction:** Selecting a mode does not start a cycle; opcode `0x03` only sets the mode. The implementation now suppresses start time unless the status reports an active cycle and rejects timestamps outside a sane Unix range or far in the future.
+- **Current correction:** The implementation now removes the raw ACK conceptually and reads `cycleStartTimeUTC` from raw payload bytes 11–14. The live cleaning capture decoded `0x6a513d7f` (2026-07-10 18:44 UTC), matching the phone's 2:44 PM local cycle start. Selecting a mode does not start a cycle; opcode `0x03` only sets the mode.
 - **`NA` interpretation:** A zero/unset start field before a cycle can be legitimate. Publishing `NA` while idle is preferable to inventing a timestamp, but we need to determine whether Home Assistant should retain the last completed start time or clear it.
-- **Next proof required:** Record raw bytes 4–13, the ESPHome SNTP Unix timestamp, and the device RTC write value at the same moment immediately after starting. Confirm bytes 10–13 match UTC wall time. Do not revisit adjacent offsets or endian order without contradicting protocol parser implementation evidence.
+- **Next proof required:** Verify the flashed entity value against this same active-cycle capture. Do not revisit adjacent offsets or endian order without contradicting the protocol response slicing and raw frame evidence.
 
 ### ISSUE-4: No schedule viewing or control is exposed
 
@@ -97,8 +97,8 @@ When the ESP32 is reconnected, preserve complete raw MU, SM, and status frames. 
 
 ### ISSUE-6: Which state indicates that cleaning is in progress?
 
-- **Best current answer:** The protocol defines PWS state byte 1 value `0x05` (`onCleanMode`) as the power supply’s direct “cleaning” state. Robot/MU state byte 0 value `0x02` (`scanning`) also indicates the robot is cleaning, while `0x01` (`mapping`) may be part of startup/cleaning behavior.
-- **Therefore:** `PWS State == Cleaning` is a strong primary indicator for the power supply cycle, but it should be corroborated with `Robot State` and, when available, In-Water status. `PWS State` alone can be transitional or stale if the MU is disconnected.
+- **Current finding:** The live capture was definitely cleaning (phone showed 29%), but the state bytes did not map to the expected cleaning enum. The protocol-aligned cycle info did: it contained a 120-minute cycle and a start time matching the phone. This disproves using PWS State alone as the primary truth source for this device.
+- **Therefore:** A derived cleaning indicator must combine valid cycle timing with state transitions and, when available, robot/in-water status. PWS State remains useful corroboration, not a sufficient answer by itself.
 - **Current implementation gap:** There is no dedicated binary `Cleaning in Progress` sensor that combines these fields. The text sensors are published independently, so Home Assistant automations currently have to interpret them.
 - **Next proof required:** Capture state transitions for start, mapping, active cleaning, finish, stop, and disconnected cases. Then define a derived binary sensor with explicit semantics rather than making users infer state from text.
 

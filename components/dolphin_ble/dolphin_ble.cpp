@@ -1024,20 +1024,21 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
 
-  this->publish_text_(TEXT_ROBOT_STATE, robot_state_to_string_(payload[0]));
-  this->publish_text_(TEXT_PWS_STATE, pws_state_to_string_(payload[1]));
-  this->publish_numeric_(NUMERIC_FILTER_STATE, payload[2]);
-  this->publish_text_(TEXT_FILTER_STATUS, filter_status_to_string_(payload[2]));
-  this->publish_current_cleaning_mode_(payload[3]);
+  // The first status payload byte is the response ACK.  The protocol's mData
+  // starts at raw payload[1], so all system_status fields are shifted by one
+  // relative to the raw ESPHome frame.
+  this->publish_text_(TEXT_ROBOT_STATE, robot_state_to_string_(payload[1]));
+  this->publish_text_(TEXT_PWS_STATE, pws_state_to_string_(payload[2]));
+  this->publish_numeric_(NUMERIC_FILTER_STATE, payload[3]);
+  this->publish_text_(TEXT_FILTER_STATUS, filter_status_to_string_(payload[3]));
+  this->publish_current_cleaning_mode_(payload[4]);
 
   if (payload_len >= 14) {
-    // The protocol parses cycle_info as:
-    //   bytes 0-1: cycleTime/cycle-type field (BE; not a duration on this PWS)
-    //   bytes 2-5: cycleStartTime (BE device uptime)
-    //   bytes 6-9: cycleStartTimeUTC (BE Unix timestamp)
-    // These are status-payload offsets 4, 6, and 10 respectively.
-    uint32_t start_time = read_u32_be_(payload + 10);
-    bool cycle_active = payload[1] == 0x05 || payload[0] == 0x01 || payload[0] == 0x02 || payload[0] == 0x03;
+    // protocol mData cycle_info: bytes 0-1 are cycleTime, 2-5 are device
+    // uptime, and 6-9 are cycleStartTimeUTC.  With the ACK at raw payload[0],
+    // the UTC field is raw payload bytes 11-14.
+    uint32_t start_time = read_u32_be_(payload + 11);
+    bool cycle_active = payload[2] == 0x05 || payload[1] == 0x01 || payload[1] == 0x02 || payload[1] == 0x03;
     bool timestamp_sane = start_time >= 1577836800UL && start_time <= 4102444800UL;
     if (!cycle_active || !timestamp_sane) {
       this->publish_numeric_(NUMERIC_CYCLE_START_TIME, NAN);
@@ -1161,6 +1162,7 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
     this->publish_text_(TEXT_QUICK_FEATURES, qf_str);
 
     if (payload_len >= 237) {
+      ESP_LOGI(TAG, "SM payload bytes 210-240: %s", this->format_hex_(payload + 210, 30).c_str());
       for (size_t i = 0; i < 10; i++)
         this->configured_cycle_times_mins_[i] = read_u16_be_(payload + 217 + i * 2);
       this->configured_cycle_times_known_ = true;

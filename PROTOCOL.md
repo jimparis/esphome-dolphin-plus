@@ -378,20 +378,21 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
 - **Opcode**: `07`, **Destination**: `FFF8`, **Request Payload**: None
 - **Envelope Request**: `03:ab03fff807000002ac`
 - **Response Layout (53 Bytes)**:
-  - **Byte 0**: `mu_state` (`RobotState` value).
-  - **Byte 1**: `sm_state` (`PwsState` value).
-  - **Byte 2**: `filter_state` (Filter bag clog byte).
-  - **Byte 3**: `cleaning_mode` (Active `CleanMode` value).
-  - **Bytes 4 - 13**: Active Cleaning Cycle Progress.
-    - Bytes 4-5: protocol `cycleTime`/cycle-type field, 16-bit big-endian. On the observed PWS this changes as `0x0100`, `0x0200`, etc. with the selected cleaning mode and must not be treated as minutes.
-    - Bytes 6-9: Monotonic PWS start uptime in seconds (`cycleStartTime`), 32-bit big-endian.
-    - Bytes 10-13: UTC cycle start time Unix timestamp in seconds (`cycleStartTimeUTC`), 32-bit big-endian.
-  - **Byte 14**: `is_smart` feature flag (Boolean, `00` or `01`).
-  - **Bytes 15 - 17**: Next scheduled cleaning cycle.
+  - Raw payload byte 0 is the response ACK. The protocol strips it before applying the following `mData` offsets.
+  - **Raw byte 1** (`mData` byte 0): `mu_state` (`RobotState` value).
+  - **Raw byte 2** (`mData` byte 1): `sm_state` (`PwsState` value).
+  - **Raw byte 3** (`mData` byte 2): `filter_state` (Filter bag clog byte).
+  - **Raw byte 4** (`mData` byte 3): `cleaning_mode` (Active `CleanMode` value).
+  - **Raw bytes 5 - 14** (`mData` bytes 4 - 13): Active Cleaning Cycle Progress.
+    - `mData` bytes 4-5: protocol `cycleTime`/cycle-type field, 16-bit big-endian. On the observed PWS this changes as `0x0100`, `0x0200`, etc. with the selected cleaning mode and must not be treated as minutes.
+    - `mData` bytes 6-9: Monotonic PWS start uptime in seconds (`cycleStartTime`), 32-bit big-endian.
+    - `mData` bytes 10-13: UTC cycle start time Unix timestamp in seconds (`cycleStartTimeUTC`), 32-bit big-endian.
+  - **Raw byte 15** (`mData` byte 14): `is_smart` feature flag (Boolean, `00` or `01`).
+  - **Raw bytes 16 - 18** (`mData` bytes 15 - 17): Next scheduled cleaning cycle.
     - Byte 15: Cleaning Mode.
     - Bytes 16-17: Delay/Time to next run in minutes (2-byte Short).
-  - **Bytes 18 - 29**: Currently active fault/error blocks (12 bytes).
-  - **Bytes 30 - 51**: Cleaning modes estimate matrix table.
+  - **Raw bytes 19 - 30** (`mData` bytes 18 - 29): Currently active fault/error blocks (12 bytes).
+  - **Raw bytes 31 - 52** (`mData` bytes 30 - 51): Cleaning modes estimate matrix table.
     - Contains 11 entries of 16-bit big-endian minute values, one per cleaning mode. This is the source for the configured duration estimate: entry `cleaning_mode - 1`.
 
 ### protocol offset authority
