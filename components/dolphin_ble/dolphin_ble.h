@@ -201,6 +201,10 @@ class DolphinBle : public Component {
   float selected_manual_drive_speed_{50.0f};
   light::LightState *led_light_{nullptr};
   bool is_telemetry_sync_{false};
+  bool last_led_enabled_{false};
+  uint8_t last_led_intensity_{0};
+  uint8_t last_led_mode_{0};
+  bool last_led_initialized_{false};
 };
 
 class DolphinBleButton : public button::Button {

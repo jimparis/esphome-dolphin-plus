@@ -1254,6 +1254,18 @@ void DolphinBle::write_led_state(light::LightState *state) {
     mode = 0x03;
   }
 
+  if (this->last_led_initialized_ &&
+      this->last_led_enabled_ == enabled &&
+      this->last_led_intensity_ == intensity &&
+      this->last_led_mode_ == mode) {
+    return;
+  }
+
+  this->last_led_enabled_ = enabled;
+  this->last_led_intensity_ = intensity;
+  this->last_led_mode_ = mode;
+  this->last_led_initialized_ = true;
+
   ESP_LOGI(TAG, "Setting LED: enabled=%d, intensity=%d, mode=%d (effect=%s)",
            enabled, intensity, mode, effect.c_str());
 
