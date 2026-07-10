@@ -12,7 +12,7 @@ KINDS = {
     "filter_state": 0,
     "is_smart": 1,
     "cycle_duration": 2,
-    "cycle_time_remaining": 3,
+    "cycle_start_time": 3,
     "temperature": 4,
     "robot_type": 5,
     "turn_on_count": 6,

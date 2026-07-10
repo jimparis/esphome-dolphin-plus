@@ -96,10 +96,9 @@ sensor:
     device_class: duration
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: cycle_time_remaining
-    name: Cycle Time Remaining
-    unit_of_measurement: "s"
-    device_class: duration
+    kind: cycle_start_time
+    name: Cycle Start Time
+    device_class: timestamp
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: temperature

@@ -66,6 +66,18 @@ void DolphinBle::loop() {
   this->maybe_start_gatt_();
   this->maybe_connect_();
   this->handle_polling_();
+
+  std::vector<std::vector<uint8_t>> local_queue;
+  {
+    std::lock_guard<std::mutex> lock(this->rx_mutex_);
+    if (!this->rx_queue_.empty()) {
+      local_queue = std::move(this->rx_queue_);
+      this->rx_queue_.clear();
+    }
+  }
+  for (const auto &chunk : local_queue) {
+    this->process_robot_notification_(chunk.data(), chunk.size());
+  }
 }
 
 float DolphinBle::get_setup_priority() const { return setup_priority::DATA; }
@@ -372,6 +384,13 @@ void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination,
 }
 
 void DolphinBle::handle_robot_notification_(const uint8_t *data, size_t len) {
+  if (data == nullptr || len == 0)
+    return;
+  std::lock_guard<std::mutex> lock(this->rx_mutex_);
+  this->rx_queue_.push_back(std::vector<uint8_t>(data, data + len));
+}
+
+void DolphinBle::process_robot_notification_(const uint8_t *data, size_t len) {
   std::string text = format_ascii_(data, len);
   ESP_LOGV(TAG, "Robot notification chunk len=%u text=\"%s\"", static_cast<unsigned>(len), text.c_str());
 
@@ -433,9 +452,15 @@ void DolphinBle::maybe_log_complete_text_frame_() {
         (static_cast<uint16_t>(frame[frame.size() - 2]) << 8) | frame[frame.size() - 1];
     uint16_t dest = (static_cast<uint16_t>(frame[2]) << 8) | frame[3];
 
-    ESP_LOGI(TAG,
-             "Robot text frame src=0x%02x dest=0x%04x opcode=0x%02x payload_len=%u checksum=%s",
-             frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad");
+    if (payload_len < 100) {
+      ESP_LOGI(TAG,
+               "Robot text frame src=0x%02x dest=0x%04x opcode=0x%02x payload_len=%u checksum=%s hex=%s",
+               frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad", frame_hex.c_str());
+    } else {
+      ESP_LOGI(TAG,
+               "Robot text frame src=0x%02x dest=0x%04x opcode=0x%02x payload_len=%u checksum=%s",
+               frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad");
+    }
 
     if (calculated == received)
       this->parse_robot_text_frame_(frame);
@@ -465,10 +490,16 @@ void DolphinBle::parse_robot_text_frame_(const std::vector<uint8_t> &frame) {
     return;
   }
   if (dest == 0xFFFD && opcode == 0x01) {
+    if (payload_len >= 160) {
+      ESP_LOGI(TAG, "MU payload bytes 130-160: %s", this->format_hex_(payload + 130, 30).c_str());
+    }
     this->publish_mu_data_from_frame_(frame);
     return;
   }
   if (dest == 0xFFFD && opcode == 0x02) {
+    if (payload_len >= 80) {
+      ESP_LOGI(TAG, "SM payload bytes 55-75: %s", this->format_hex_(payload + 55, 20).c_str());
+    }
     this->publish_sm_data_from_frame_(frame);
     return;
   }
@@ -668,6 +699,15 @@ uint16_t DolphinBle::read_u16_be_(const uint8_t *data) {
 uint32_t DolphinBle::read_u32_be_(const uint8_t *data) {
   return (static_cast<uint32_t>(data[0]) << 24) | (static_cast<uint32_t>(data[1]) << 16) |
          (static_cast<uint32_t>(data[2]) << 8) | data[3];
+}
+
+uint16_t DolphinBle::read_u16_le_(const uint8_t *data) {
+  return (static_cast<uint16_t>(data[1]) << 8) | data[0];
+}
+
+uint32_t DolphinBle::read_u32_le_(const uint8_t *data) {
+  return (static_cast<uint32_t>(data[3]) << 24) | (static_cast<uint32_t>(data[2]) << 16) |
+         (static_cast<uint32_t>(data[1]) << 8) | data[0];
 }
 
 uint64_t DolphinBle::read_u64_be_(const uint8_t *data, size_t len) {
@@ -944,8 +984,17 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   this->publish_current_cleaning_mode_(payload[3]);
 
   if (payload_len >= 14) {
-    this->publish_numeric_(NUMERIC_CYCLE_DURATION, read_u32_be_(payload + 6));
-    this->publish_numeric_(NUMERIC_CYCLE_TIME_REMAINING, read_u32_be_(payload + 10));
+    uint32_t start_time = read_u32_le_(payload + 10);
+    this->publish_numeric_(NUMERIC_CYCLE_START_TIME, static_cast<float>(start_time));
+  }
+  if (payload_len >= 52) {
+    uint8_t active_mode = payload[3];
+    uint16_t duration_mins = 0;
+    if (active_mode < 11) {
+      // Cleaning mode durations table (big-endian shorts in minutes) starts at offset 30
+      duration_mins = read_u16_be_(payload + 30 + active_mode * 2);
+    }
+    this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(duration_mins * 60));
   }
   if (payload_len >= 15) {
     this->publish_numeric_(NUMERIC_IS_SMART, payload[14] ? 1.0f : 0.0f);
@@ -957,8 +1006,13 @@ void DolphinBle::publish_temperature_from_frame_(const std::vector<uint8_t> &fra
     return;
   const uint8_t *payload = &frame[7];
   this->publish_text_(TEXT_IN_WATER_STATUS, water_status_to_string_(payload[0]));
+  
   int16_t temperature = static_cast<int16_t>(read_u16_be_(payload + 1));
-  this->publish_numeric_(NUMERIC_TEMPERATURE, static_cast<float>(temperature));
+  if (temperature == 0xFFFF || temperature == 0x3E9 || temperature == 0x3EA || temperature < 0) {
+    this->publish_numeric_(NUMERIC_TEMPERATURE, NAN);
+  } else {
+    this->publish_numeric_(NUMERIC_TEMPERATURE, static_cast<float>(temperature) / 10.0f);
+  }
 }
 
 void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) {
@@ -968,24 +1022,34 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
   size_t payload_len = frame.size() - 9;
 
   if (payload_len >= 172) {
-    this->publish_numeric_(NUMERIC_ROBOT_TYPE, read_u16_be_(payload + 132));
-    this->publish_numeric_(NUMERIC_MU_FLASH_WRITE_COUNTER, read_u32_be_(payload + 134));
-    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_be_(payload + 146));
-    this->publish_numeric_(NUMERIC_MU_NOT_COMPLETED_CYCLES, read_u16_be_(payload + 148));
+    this->publish_numeric_(NUMERIC_ROBOT_TYPE, read_u16_le_(payload + 132));
+    this->publish_numeric_(NUMERIC_MU_FLASH_WRITE_COUNTER, read_u32_le_(payload + 134));
+    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_le_(payload + 146));
+    this->publish_numeric_(NUMERIC_MU_NOT_COMPLETED_CYCLES, read_u16_le_(payload + 148));
     this->publish_numeric_(NUMERIC_MU_CLIMB_PERIOD, payload[170]);
 
     // Combined float runtime hours (hours + minutes/60)
-    uint16_t pcb_hrs = read_u16_be_(payload + 140);
-    uint8_t pcb_mins = payload[142];
-    this->publish_numeric_(NUMERIC_MU_PCB_RUNTIME, static_cast<float>(pcb_hrs) + static_cast<float>(pcb_mins) / 60.0f);
+    uint16_t pcb_hrs = read_u16_le_(payload + 140);
+    if (pcb_hrs == 0xFFFF) {
+      this->publish_numeric_(NUMERIC_MU_PCB_RUNTIME, NAN);
+    } else {
+      uint8_t pcb_mins = payload[142];
+      this->publish_numeric_(NUMERIC_MU_PCB_RUNTIME, static_cast<float>(pcb_hrs) + static_cast<float>(pcb_mins) / 60.0f);
+    }
 
-    uint16_t imp_hrs = read_u16_be_(payload + 143);
+    uint16_t imp_hrs = read_u16_le_(payload + 143);
     uint8_t imp_mins = payload[145];
     this->publish_numeric_(NUMERIC_MU_IMPELLER_RUNTIME, static_cast<float>(imp_hrs) + static_cast<float>(imp_mins) / 60.0f);
 
     // Combined Software Version String
     uint8_t major = payload[152];
-    uint16_t minor = read_u16_be_(payload + 153);
+    uint16_t minor = 0;
+    if (major != 0xFF) {
+      minor = read_u16_le_(payload + 153);
+    } else if (payload[154] != 0xFF) {
+      major = payload[154];
+      minor = read_u16_le_(payload + 155);
+    }
     char ver_buf[16];
     std::snprintf(ver_buf, sizeof(ver_buf), "%d.%d", major, minor);
     this->publish_text_(TEXT_MU_SW_VERSION, ver_buf);
@@ -999,10 +1063,10 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
   size_t payload_len = frame.size() - 9;
 
   if (payload_len >= 151) {
-    int16_t timezone = static_cast<int16_t>(read_u16_be_(payload + 63));
+    int16_t timezone = static_cast<int16_t>(read_u16_be_(payload + 64));
     this->publish_numeric_(NUMERIC_SM_TIMEZONE, timezone);
 
-    uint8_t qf = payload[65];
+    uint8_t qf = payload[66];
     std::string qf_str;
     if (qf & 0x01) qf_str += "WeeklyTimer1D ";
     if (qf & 0x02) qf_str += "WeeklyTimer2D ";

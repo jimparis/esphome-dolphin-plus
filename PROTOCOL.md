@@ -368,22 +368,23 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
   - **Byte 2**: `filter_state` (Filter bag clog byte).
   - **Byte 3**: `cleaning_mode` (Active `CleanMode` value).
   - **Bytes 4 - 13**: Active Cleaning Cycle Progress.
-    - Bytes 4-5: Cycle Mode / Config.
-    - Bytes 6-9: Configured cycle duration in seconds (4-byte Int).
-    - Bytes 10-13: Time remaining in seconds (4-byte Int).
+    - Bytes 4-5: Cycle Mode / Config index (`cycleType`), 16-bit little-endian.
+    - Bytes 6-9: Monotonic PWS start uptime in seconds (`cycleStartTime`), 32-bit little-endian.
+    - Bytes 10-13: UTC cycle start time Unix timestamp in seconds (`cycleStartTimeUTC`), 32-bit little-endian.
   - **Byte 14**: `is_smart` feature flag (Boolean, `00` or `01`).
   - **Bytes 15 - 17**: Next scheduled cleaning cycle.
     - Byte 15: Cleaning Mode.
     - Bytes 16-17: Delay/Time to next run in minutes (2-byte Short).
   - **Bytes 18 - 29**: Currently active fault/error blocks (12 bytes).
-  - **Bytes 30 - 52**: Cleaning modes support matrix table.
+  - **Bytes 30 - 52**: Cleaning modes duration matrix table.
+    - Contains up to 11 entries of 16-bit big-endian shorts representing the cleaning mode durations in minutes. The configured cycle duration of the current run is the duration from this table at the index of `cleaning_mode` (Byte 3).
 
 ### Temperature & In-Water Sensor (`temperature`)
 If the unit features `inwat=true` in `pws_features`, this command can read internal environment sensors. If not supported, sending it triggers low-level failures.
 - **Opcode**: `09`, **Destination**: `FFF8`, **Request Payload**: None
 - **Response Layout (10 Bytes)**:
-  - **Byte 0**: In-Water Status (`01` = Robot is in water, `00` = Out of water).
-  - **Bytes 1 - 2**: Water Temperature (16-bit signed Big-Endian Int in Celsius, e.g. `00 19` = 25°C).
+  - **Byte 0**: In-Water Status (`00` = Out of water, `01` = In water, `02` = Unknown, `03` = Error, `04` = No Baro/Calibrate, `0f` = Loading).
+  - **Bytes 1 - 2**: Water Temperature (16-bit signed Big-Endian Int in Celsius, scaled by 10, e.g. `00 f5` = 24.5°C). Special values `0xFFFF` (`65535`), `0x03E9` (`1001`), and `0x03EA` (`1002`) indicate unavailable or reading-failed states.
   - **Byte 3**: Measuring During Cycle active flag (`01` = Active).
   - **Byte 4**: Measurement Health/Status code.
   - **Bytes 5 - 9**: Epoch Timestamp of the last measurement (5 bytes).

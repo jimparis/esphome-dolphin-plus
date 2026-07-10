@@ -5,6 +5,7 @@
 #include <initializer_list>
 #include <string>
 #include <vector>
+#include <mutex>
 
 #include "esphome/core/component.h"
 
@@ -52,7 +53,7 @@ class DolphinBle : public Component {
     NUMERIC_FILTER_STATE = 0,
     NUMERIC_IS_SMART = 1,
     NUMERIC_CYCLE_DURATION = 2,
-    NUMERIC_CYCLE_TIME_REMAINING = 3,
+    NUMERIC_CYCLE_START_TIME = 3,
     NUMERIC_TEMPERATURE = 4,
     NUMERIC_ROBOT_TYPE = 5,
     NUMERIC_TURN_ON_COUNT = 6,
@@ -101,6 +102,7 @@ class DolphinBle : public Component {
   void send_command_frame_(uint8_t opcode, uint16_t destination, std::initializer_list<uint8_t> payload,
                            const char *name);
   void handle_robot_notification_(const uint8_t *data, size_t len);
+  void process_robot_notification_(const uint8_t *data, size_t len);
   void maybe_log_complete_text_frame_();
   void parse_robot_text_frame_(const std::vector<uint8_t> &frame);
   void log_uuid_(const char *prefix, const esp_bt_uuid_t &uuid);
@@ -113,6 +115,8 @@ class DolphinBle : public Component {
   static bool is_text_frame_chunk_(const uint8_t *data, size_t len);
   static uint16_t read_u16_be_(const uint8_t *data);
   static uint32_t read_u32_be_(const uint8_t *data);
+  static uint16_t read_u16_le_(const uint8_t *data);
+  static uint32_t read_u32_le_(const uint8_t *data);
   static uint64_t read_u64_be_(const uint8_t *data, size_t len);
   static std::string mode_to_string_(uint8_t mode);
   static uint8_t mode_from_string_(const std::string &mode);
@@ -176,6 +180,8 @@ class DolphinBle : public Component {
 
   std::string rx_text_buffer_;
   std::string tx_text_buffer_;
+  std::mutex rx_mutex_;
+  std::vector<std::vector<uint8_t>> rx_queue_;
 
   std::array<sensor::Sensor *, NUM_NUMERIC_SENSORS> numeric_sensors_{};
   std::array<text_sensor::TextSensor *, NUM_TEXT_SENSORS> text_sensors_{};
