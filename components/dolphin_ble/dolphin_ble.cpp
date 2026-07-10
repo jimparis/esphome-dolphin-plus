@@ -1017,24 +1017,27 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   this->publish_current_cleaning_mode_(payload[3]);
 
   if (payload_len >= 14) {
+    // The protocol parses cycle_info as:
+    //   bytes 0-1: cycleTime (BE minutes)
+    //   bytes 2-5: cycleStartTime (BE device uptime)
+    //   bytes 6-9: cycleStartTimeUTC (BE Unix timestamp)
+    // These are status-payload offsets 4, 6, and 10 respectively.
     uint32_t start_time = read_u32_be_(payload + 10);
     if (start_time == 0) {
       this->publish_numeric_(NUMERIC_CYCLE_START_TIME, NAN);
     } else {
-      this->publish_numeric_(NUMERIC_CYCLE_START_TIME, static_cast<float>(start_time + 1559347200));
+      this->publish_numeric_(NUMERIC_CYCLE_START_TIME, static_cast<float>(start_time));
     }
   }
-  if (payload_len >= 52) {
-    uint8_t active_mode = payload[3];
-    if (active_mode == 0) {
-      active_mode = this->selected_cleaning_mode_;
+  if (payload_len >= 6) {
+    // The protocol's CleaningCycle.cycleTime is cycle_info bytes 0-1, i.e.
+    // status payload bytes 4-5. It is already minutes, not seconds.
+    uint16_t cycle_time_mins = read_u16_be_(payload + 4);
+    if (cycle_time_mins == 0 || cycle_time_mins == 0xffff || cycle_time_mins > 24 * 60) {
+      this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
+    } else {
+      this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(cycle_time_mins * 60));
     }
-    uint16_t duration_mins = 0;
-    if (active_mode >= 1 && active_mode <= 11) {
-      // Cleaning mode durations table (big-endian shorts in minutes) starts at offset 30
-      duration_mins = read_u16_be_(payload + 30 + (active_mode - 1) * 2);
-    }
-    this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(duration_mins * 60));
   }
 }
 
@@ -1061,21 +1064,21 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
   if (payload_len >= 172) {
     this->publish_numeric_(NUMERIC_ROBOT_TYPE, read_u16_le_(payload + 132));
     this->publish_numeric_(NUMERIC_MU_FLASH_WRITE_COUNTER, read_u32_le_(payload + 134));
-    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_le_(payload + 147));
-    this->publish_numeric_(NUMERIC_MU_NOT_COMPLETED_CYCLES, read_u16_le_(payload + 149));
+    this->publish_numeric_(NUMERIC_TURN_ON_COUNT, read_u16_le_(payload + 146));
+    this->publish_numeric_(NUMERIC_MU_NOT_COMPLETED_CYCLES, read_u16_le_(payload + 148));
     this->publish_numeric_(NUMERIC_MU_CLIMB_PERIOD, payload[170]);
 
     // Combined float runtime hours (hours + minutes/60)
-    uint16_t pcb_hrs = read_u16_le_(payload + 141);
+    uint16_t pcb_hrs = read_u16_le_(payload + 140);
     if (pcb_hrs == 0xFFFF) {
       this->publish_numeric_(NUMERIC_MU_PCB_RUNTIME, NAN);
     } else {
-      uint8_t pcb_mins = payload[140];
+      uint8_t pcb_mins = payload[142];
       this->publish_numeric_(NUMERIC_MU_PCB_RUNTIME, static_cast<float>(pcb_hrs) + static_cast<float>(pcb_mins) / 60.0f);
     }
 
-    uint16_t imp_hrs = read_u16_le_(payload + 144);
-    uint8_t imp_mins = payload[143];
+    uint16_t imp_hrs = read_u16_le_(payload + 143);
+    uint8_t imp_mins = payload[145];
     this->publish_numeric_(NUMERIC_MU_IMPELLER_RUNTIME, static_cast<float>(imp_hrs) + static_cast<float>(imp_mins) / 60.0f);
 
     // Combined Software Version String
@@ -1125,10 +1128,10 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
   size_t payload_len = frame.size() - 9;
 
   if (payload_len >= 151) {
-    int16_t timezone = static_cast<int16_t>(read_u16_be_(payload + 64));
+    int16_t timezone = static_cast<int16_t>(read_u16_be_(payload + 63));
     this->publish_numeric_(NUMERIC_SM_TIMEZONE, timezone);
 
-    uint8_t qf = payload[66];
+    uint8_t qf = payload[65];
     std::string qf_str;
     if (qf & 0x01) qf_str += "WeeklyTimer1D ";
     if (qf & 0x02) qf_str += "WeeklyTimer2D ";

@@ -362,13 +362,12 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
   - **Bytes 132 - 133**: Robot Type ID (2 bytes, Short).
   - **Bytes 134 - 137**: Flash Write Counter (4 bytes, Int).
   - **Bytes 138 - 139**: Configured Cycle Time (2 bytes, Short).
-  - **Bytes 140**: PCB Runtime Minutes (1 byte).
-  - **Bytes 141 - 142**: PCB Runtime Hours (2-byte Little-Endian Short).
-  - **Byte 143**: Impeller Runtime Minutes (1 byte).
-  - **Bytes 144 - 145**: Impeller Runtime Hours (2-byte Little-Endian Short).
-  - **Byte 146**: Unknown status / padding byte.
-  - **Bytes 147 - 148**: Turn-On Counter (2-byte Little-Endian Short).
-  - **Bytes 149 - 150**: Not Completed Cycle Counter (2-byte Little-Endian Short).
+  - **Bytes 140 - 141**: PCB Runtime Hours (2-byte Little-Endian Short).
+  - **Byte 142**: PCB Runtime Minutes (1 byte).
+  - **Bytes 143 - 144**: Impeller Runtime Hours (2-byte Little-Endian Short).
+  - **Byte 145**: Impeller Runtime Minutes (1 byte).
+  - **Bytes 146 - 147**: Turn-On Counter (2-byte Little-Endian Short).
+  - **Bytes 148 - 149**: Not Completed Cycle Counter (2-byte Little-Endian Short).
   - **Byte 152**: Robot Software Version Major.
   - **Bytes 153 - 154**: Robot Software Version Minor.
   - **Byte 157**: Active LEDs configuration.
@@ -384,7 +383,7 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
   - **Byte 2**: `filter_state` (Filter bag clog byte).
   - **Byte 3**: `cleaning_mode` (Active `CleanMode` value).
   - **Bytes 4 - 13**: Active Cleaning Cycle Progress.
-    - Bytes 4-5: Cycle Mode / Config index (`cycleType`), 16-bit big-endian.
+    - Bytes 4-5: Current cycle time in minutes (`cycleTime`), 16-bit big-endian.
     - Bytes 6-9: Monotonic PWS start uptime in seconds (`cycleStartTime`), 32-bit big-endian.
     - Bytes 10-13: UTC cycle start time Unix timestamp in seconds (`cycleStartTimeUTC`), 32-bit big-endian.
   - **Byte 14**: `is_smart` feature flag (Boolean, `00` or `01`).
@@ -392,8 +391,12 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
     - Byte 15: Cleaning Mode.
     - Bytes 16-17: Delay/Time to next run in minutes (2-byte Short).
   - **Bytes 18 - 29**: Currently active fault/error blocks (12 bytes).
-  - **Bytes 30 - 51**: Cleaning modes duration matrix table.
-    - Contains up to 11 entries of 16-bit big-endian shorts representing the cleaning mode durations in minutes. The configured cycle duration of the current run is the duration from this table at the index of `cleaning_mode - 1` (Byte 3, 1-indexed).
+  - **Bytes 30 - 51**: Cleaning modes estimate matrix table.
+    - Contains 11 entries of 16-bit big-endian minute values, one per cleaning mode. The protocol parses these independently as estimates; it does not use them as a substitute for `cycle_info[0..1]`.
+
+### protocol offset authority
+
+The offsets above are taken from `protocol documentation`, specifically `res/raw/protocol field definitions` and the parser implementation of `ReadIotStatus`, `ReadIotMuData`, and `ByteExtKt`. The protocol uses half-open ranges (`start` inclusive, `end` exclusive), so a JSON range `start: 63, end: 65` means bytes 63 and 64. For MU multi-byte values, the protocol's `big_indian` flag is counterintuitive: its parser reverses the selected bytes when the flag is false, yielding little-endian values for this command.
 
 ### Temperature & In-Water Sensor (`temperature`)
 If the unit features `inwat=true` in `pws_features`, this command can read internal environment sensors. If not supported, sending it triggers low-level failures.

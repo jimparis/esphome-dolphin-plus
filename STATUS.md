@@ -20,7 +20,7 @@ This document provides a summary of the current state of the ESPHome Maytronics 
 - **PWS Features**:
   - Successfully decodes capabilities: `in_water=true`, `cellular=false`.
 - **Cycle Start Time & Configured Cycle Duration**:
-  - The frame is parsed as big-endian at payload offset 10 and the duration matrix is currently read at payload offset 30. These are implementation hypotheses, not verified facts; see the tracked issues below.
+  - protocol analysis now confirms status payload offsets 4–5 for `cycleTime`, 6–9 for device uptime, and 10–13 for UTC Unix time, all big-endian. The protocol adds no epoch offset. The duration estimate matrix begins at payload offset 30, but is separate from `cycleTime`.
 - **LED Light Control (Opcode 0x10)**:
   - Implemented as a custom ESPHome `light` entity which allows toggle, brightness control (0-100% mapped to byte 1), and mode effects (`Blinking` mapped to mode 1, `Constant/None` mapped to mode 2, and `Disco` mapped to mode 3).
 
@@ -30,17 +30,26 @@ This document provides a summary of the current state of the ESPHome Maytronics 
 - **Importable Template Split**:
   - Split `dolphin_ble.yaml` into a public importable ESPHome template (e.g. `dolphin_ble_core.yaml`) and a private local development overlay once the configuration is thoroughly validated.
 
-## 3. Active Issues — Do Not Treat These as Resolved
+## 3. protocol-Verified Offset Findings
+
+The checked-in `protocol documentation` is the authority for these offsets. Its `protocol field definitions` uses half-open ranges (`start` inclusive, `end` exclusive), and the parser implementation confirms the integer conversion behavior.
+
+- `system_status`: payload bytes 0–3 are states/mode; bytes 4–5 are big-endian `cycleTime`; bytes 6–9 are big-endian device uptime; bytes 10–13 are big-endian `cycleStartTimeUTC`; bytes 30–51 are 11 big-endian minute estimates.
+- `get_sm_data`: timezone is payload bytes 63–64; Quick Features is byte 65; weekly data is 72–107; delay is 108–113; SSID is 118–150; cycle-time settings are 217–236.
+- `get_mu_data`: the authoritative fields are robot type 132–133, flash counter 134–137, cycle time 138–139, PCB hours 140–141, PCB minutes 142, impeller hours 143–144, impeller minutes 145, turn-on count 146–147, incomplete cycles 148–149, LEDs 157, clean mode 167, and climb period 170. Multi-byte values are little-endian in the protocol parser.
+- The previous implementation was wrong at SM offsets 63/65 and at several MU offsets after byte 140. Those corrections are now applied.
+
+## 4. Active Issues — Do Not Treat These as Resolved
 
 These are explicit investigation items. Each one needs packet evidence and a reproducible before/after observation before it is moved to resolved. In particular, do not change the epoch interpretation again without recording the raw bytes and comparing all candidate fields.
 
 ### ISSUE-1: Configured cycle duration is invalid
 
 - **Observed:** Home Assistant reports `3916800 s` (65,280 minutes / raw `0xff00`), which is not a plausible cleaning duration.
-- **Current code path:** `publish_status_from_frame_()` uses status payload byte 3 as the mode, falls back to `selected_cleaning_mode_` when that byte is zero, then reads a big-endian 16-bit value from payload offset `30 + 2 * (mode - 1)` and multiplies by 60.
+- **Previous code path:** The implementation incorrectly selected a matrix entry using status byte 3 and a fallback mode. The protocol instead parses `cycle_info` bytes 4–5 directly as `cycleTime`; the matrix at byte 30 is a separate set of estimates.
 - **Evidence:** The captured idle frame contains a duration table with repeated `0x0078` (120-minute) values and `0xff` bytes before it. The `0xff00` result proves that an invalid/sentinel pair or an incorrectly aligned field is being treated as minutes; it is not a real duration.
-- **History / finding:** The table start was changed from 31 to 30, and the idle fallback was added, but neither change was validated against a known active-cycle frame. This is not resolved.
-- **Next proof required:** Capture a complete status frame before starting, immediately after starting, during cleaning, and after stopping. Print payload indices 0–52 plus the selected source offset/raw 16-bit value. Compare that with the configured mode from the MU/SM blocks. Reject `0xff`, `0xffff`, and implausible values rather than publishing them.
+- **History / finding:** The table start oscillation was an indexing mistake; protocol evidence fixes it at 30. The invalid 0xff00 result came from treating an estimate/sentinel pair as the configured duration. The code now reads the protocol-defined `cycleTime` field and rejects implausible values.
+- **Remaining proof:** Verify the device's live `cycleTime` value against the app's selected 1.5/2/2.5/3.5-hour options during an actual cycle.
 
 ### ISSUE-2: Cleaning Mode reports `None`
 
@@ -52,10 +61,10 @@ These are explicit investigation items. Each one needs packet evidence and a rep
 ### ISSUE-3: Cycle start time is about six months in the future / sometimes `NA`
 
 - **Observed:** The displayed timestamp is about six months ahead. Before a cycle starts it has also appeared as `NA`.
-- **What has actually been tried:** The parser has been changed repeatedly between raw 32-bit values, little-endian, big-endian, and a hard-coded `1559347200` epoch offset. The current code reads payload bytes 10–13 big-endian and adds that offset. The protocol notes call bytes 6–9 a monotonic PWS uptime and bytes 10–13 a UTC Unix timestamp, but this field assignment is not verified by a captured active-cycle packet.
-- **Important conclusion:** The six-month error is evidence that either (a) the selected bytes are not a Unix timestamp, (b) the device uses a May-2019-relative epoch and the offset/units are wrong, (c) the timestamp is in local/device time and is being treated as UTC, or (d) the frame offsets are wrong. It is not evidence that another blind epoch constant is needed.
+- **What has actually been tried:** The parser was changed repeatedly between raw values, little-endian, big-endian, and a hard-coded `1559347200` epoch offset. protocol parser implementation now conclusively fixes bytes 6–9 as device uptime and bytes 10–13 as `cycleStartTimeUTC`, both big-endian, with no added epoch.
+- **Important conclusion:** The six-month error was caused by the unverified epoch addition. The protocol does not add one. If the live value is still wrong after this correction, the remaining question is device clock synchronization—not adjacent status-byte selection.
 - **`NA` interpretation:** A zero/unset start field before a cycle can be legitimate. Publishing `NA` while idle is preferable to inventing a timestamp, but we need to determine whether Home Assistant should retain the last completed start time or clear it.
-- **Next proof required:** Record raw bytes 4–13 and the ESPHome SNTP Unix timestamp at the same moment before start, immediately after start, during the cycle, and after stop. Decode all four candidate combinations (bytes 6–9 and 10–13, BE and LE) and compare with the observed wall clock. Only then choose the field and conversion; document the arithmetic and remove the hard-coded offset unless packet evidence proves it.
+- **Next proof required:** Record raw bytes 4–13, the ESPHome SNTP Unix timestamp, and the device RTC write value at the same moment immediately after starting. Confirm bytes 10–13 match UTC wall time. Do not revisit adjacent offsets or endian order without contradicting protocol parser implementation evidence.
 
 ### ISSUE-4: No schedule viewing or control is exposed
 
@@ -67,7 +76,7 @@ These are explicit investigation items. Each one needs packet evidence and a rep
 ### ISSUE-5: “Quick button features” are being misunderstood
 
 - **What it means:** The current `Quick Features` text sensor is a capability bitmask, not the power-supply button configuration and not a control. It reports which features the PWS claims to support: weekly timer intervals, start delay, filter LED, Floor Only, Fast, and Pickup.
-- **Offset warning:** The protocol notes label this byte 65, while the current parser reads `payload[66]`. That one-byte disagreement must be resolved from an indexed SM packet before trusting the displayed capability names.
+- **Resolved offset correction:** The protocol fixes Quick Features at payload byte 65 and timezone at bytes 63–64; the implementation now uses those offsets. Physical button behavior remains a separate unresolved feature question.
 - **What it does not do:** It does not configure what pressing the physical power-supply button does, and the YAML has no entity for that. The current code only formats the bitmask into text.
 - **Physical button control status:** No command or response mapping for “physical button action” has been established in this repository. We must not claim that the button can be configured until an app trace or protocol mapping identifies that setting.
 - **Next proof required:** Identify the app’s setting/API and corresponding packet, if one exists. Separately expose capability flags and actual schedule/button configuration so they cannot be conflated.
