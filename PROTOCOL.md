@@ -402,7 +402,7 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
 The response layouts use zero-based, half-open ranges where applicable. A range from 63 through 65 therefore contains bytes 63 and 64. For the MU response, multi-byte runtime and counter fields are little-endian.
 
 ### Temperature & In-Water Sensor (`temperature`)
-If the unit features `inwat=true` in `pws_features`, this command can read internal environment sensors. If not supported, sending it triggers low-level failures.
+The compact PWS feature reply may advertise in-water support, but that alone is not sufficient to enable this request: on the reference unit it has not produced a valid response and coincides with malformed short-ACL traffic. Keep polling disabled until a valid response is captured without disrupting status traffic.
 - **Opcode**: `09`, **Destination**: `FFF8`, **Request Payload**: None
 - **Response Layout (10 Bytes)**:
   - The first raw response-payload byte is an ACK; the data offsets below begin at raw payload byte 1.

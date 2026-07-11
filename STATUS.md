@@ -9,7 +9,7 @@ Current status of the ESPHome Maytronics Dolphin BLE integration.
 - PWS capabilities are decoded from the compact three-byte reply, including in-water and cellular support.
 - The cleaning-mode select no longer emits the ESPHome `Invalid option none` warning.
 - The custom LED light supports on/off, brightness from 0-100%, and the `Blinking`, `Constant`, and `Disco` effects.
-- Status, temperature, SM, and MU requests are coordinated by the C++ component. Temperature polling is enabled only when the PWS advertises in-water support.
+- Status, SM, and MU requests are coordinated by the C++ component. Temperature polling remains disabled pending a valid, non-disruptive response from this unit.
 
 ## Protocol Layouts
 
@@ -43,7 +43,7 @@ When idle, the status frame can report active cleaning mode `0x00`, which the in
 
 ### Cycle start time
 
-The integration reads the UTC cycle start time from raw payload bytes 11-14, big-endian, with no epoch adjustment. A zero or unset field is published as `NA` when no active cycle is present. Phone-reported cycle start times provide the comparison point for validating this entity.
+The integration reads the UTC cycle start time from raw payload bytes 11-14, big-endian, with no epoch adjustment. A zero or unset field is published as `NA` when no active cycle is present. The value is a fixed start timestamp rather than the current PWS clock. If its RTC has been stale, the controller can report an old cycle start; after RTC synchronization, it recomputes the active cycle's start from the corrected clock and elapsed run time.
 
 ### Quick-button configuration
 
@@ -61,9 +61,9 @@ The current live response reports approximately 828 hours 49 minutes for PCB run
 
 Raw filter value `0x66` is a not-available indication rather than 102 percent. The integration publishes `NA` numerically and `not_available` textually for `0x66` and `0xff`; zero represents an empty or clear filter.
 
-### In-water status
+### In-water status and temperature
 
-The reference unit does not currently provide a usable in-water measurement. If the capability is absent, temperature polling is suppressed and the entity remains `NA`.
+The PWS advertises in-water support, but its temperature request has not yielded a valid response on the reference unit and coincides with malformed short-ACL traffic. Temperature polling is disabled until a valid response can be captured without disrupting status traffic.
 
 ### LED readback
 
