@@ -404,12 +404,12 @@ bool DolphinBle::send_local_notification_text_(const std::string &text) {
 }
 
 void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
-                                     size_t payload_len, const char *name) {
-  this->queue_command_frame_(opcode, destination, payload, payload_len, name, false);
+                                     size_t payload_len, const char *name, bool expects_response) {
+  this->queue_command_frame_(opcode, destination, payload, payload_len, name, false, expects_response);
 }
 
 void DolphinBle::queue_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
-                                      size_t payload_len, const char *name, bool deduplicate) {
+                                      size_t payload_len, const char *name, bool deduplicate, bool expects_response) {
   std::vector<uint8_t> frame;
   frame.reserve(7 + payload_len + 2);
   frame.push_back(0xab);
@@ -436,15 +436,15 @@ void DolphinBle::queue_command_frame_(uint8_t opcode, uint16_t destination, cons
         return;
     }
   }
-  this->command_queue_.push_back({opcode, destination, name, text});
-  ESP_LOGD(TAG, "Queued command %s opcode=0x%02x dest=0x%04x payload=%s", name, opcode,
-           destination, payload_len ? format_hex_(payload, payload_len).c_str() : "");
+  this->command_queue_.push_back({opcode, destination, name, text, 0, 0, expects_response});
+  ESP_LOGD(TAG, "Queued command %s opcode=0x%02x dest=0x%04x payload=%s expects_response=%d", name, opcode,
+           destination, payload_len ? format_hex_(payload, payload_len).c_str() : "", expects_response);
 }
 
 void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination,
-                                     std::initializer_list<uint8_t> payload, const char *name) {
+                                     std::initializer_list<uint8_t> payload, const char *name, bool expects_response) {
   std::vector<uint8_t> data(payload.begin(), payload.end());
-  this->send_command_frame_(opcode, destination, data.data(), data.size(), name);
+  this->send_command_frame_(opcode, destination, data.data(), data.size(), name, expects_response);
 }
 
 void DolphinBle::handle_command_queue_() {
@@ -469,6 +469,9 @@ void DolphinBle::handle_command_queue_() {
            pending.name.c_str(), pending.opcode, pending.destination, pending.attempts,
            pending.text.c_str());
   this->send_local_notification_text_(pending.text);
+  if (!pending.expects_response) {
+    this->command_queue_.pop_front();
+  }
 }
 
 void DolphinBle::handle_command_response_(uint16_t destination, uint8_t opcode) {
@@ -1395,6 +1398,9 @@ void DolphinBleButton::press_action() {
     case 2:
       this->parent_->press_pickup_mode();
       break;
+    case 3:
+      this->parent_->press_refresh_status();
+      break;
     default:
       break;
   }
@@ -1410,7 +1416,15 @@ void DolphinBle::press_pickup_mode() {
 }
 
 void DolphinBle::press_quit_manual_drive() {
-  this->send_command_frame_(0x04, 0xFFF7, {}, "quit_manual_drive");
+  this->send_command_frame_(0x04, 0xFFF7, {}, "quit_manual_drive", false);
+}
+
+void DolphinBle::press_refresh_status() {
+  const uint8_t sm_payload[] = {0x02, 0x00, 0xff};
+  this->queue_command_frame_(0x02, 0xFFFD, sm_payload, sizeof(sm_payload), "get_sm_data", true);
+  const uint8_t mu_payload[] = {0x01, 0x00, 0xff};
+  this->queue_command_frame_(0x01, 0xFFFD, mu_payload, sizeof(mu_payload), "get_mu_data", true);
+  this->queue_command_frame_(0x07, 0xFFF8, nullptr, 0, "system_status", true);
 }
 
 void DolphinBle::set_cleaning_mode_option(const std::string &option) {
@@ -1434,7 +1448,7 @@ void DolphinBle::set_manual_drive_direction_option(const std::string &option) {
   } else {
     uint8_t speed = static_cast<uint8_t>(std::clamp(this->selected_manual_drive_speed_, 0.0f, 100.0f));
     ESP_LOGI(TAG, "Steering robot direction=%s speed=%d", option.c_str(), speed);
-    this->send_command_frame_(0x03, 0xFFF7, {direction, speed}, "manual_drive");
+    this->send_command_frame_(0x03, 0xFFF7, {direction, speed}, "manual_drive", false);
   }
 }
 
@@ -1445,7 +1459,7 @@ void DolphinBle::set_manual_drive_speed(float speed) {
     uint8_t speed_byte = static_cast<uint8_t>(std::clamp(speed, 0.0f, 100.0f));
     ESP_LOGI(TAG, "Updating steering speed direction=%s speed=%d",
              direction_to_string_(direction).c_str(), speed_byte);
-    this->send_command_frame_(0x03, 0xFFF7, {direction, speed_byte}, "manual_drive");
+    this->send_command_frame_(0x03, 0xFFF7, {direction, speed_byte}, "manual_drive", false);
   }
 }
 
@@ -1504,7 +1518,7 @@ void DolphinBle::write_led_state(light::LightState *state) {
 
   // Send the command
   uint8_t enabled_byte = enabled ? 0x01 : 0x00;
-  this->send_command_frame_(0x10, 0xFFF7, {enabled_byte, intensity, mode}, "led_control");
+  this->send_command_frame_(0x10, 0xFFF7, {enabled_byte, intensity, mode}, "led_control", false);
 }
 
 void DolphinBle::set_weekly_repeat_state(bool state) {
@@ -1641,6 +1655,5 @@ void DolphinBleText::control(const std::string &value) {
   }
   this->publish_state(value);
 }
-
 }  // namespace dolphin_ble
 }  // namespace esphome

@@ -42,7 +42,7 @@ dolphin_ble:
   time_id: sntp_time
   # These details are profile-specific and may differ across robot models or firmware.
   temperature_supported: false
-  mu_led_data_offset: 157
+  mu_led_data_offset: 155
 
 time:
   - platform: sntp
@@ -165,6 +165,10 @@ button:
     dolphin_ble_id: dolphin_bridge
     kind: pickup_mode
     name: Pickup Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: refresh_status
+    name: Refresh Status
 
 select:
   - platform: dolphin_ble

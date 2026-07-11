@@ -56,6 +56,7 @@ class DolphinBle : public Component {
   void press_stop_cleaning();
   void press_pickup_mode();
   void press_quit_manual_drive();
+  void press_refresh_status();
   void set_cleaning_mode_option(const std::string &option);
   void set_manual_drive_direction_option(const std::string &option);
 
@@ -125,11 +126,11 @@ class DolphinBle : public Component {
   void send_rtc_time_();
   bool send_local_notification_text_(const std::string &text);
   void send_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
-                           size_t payload_len, const char *name);
+                           size_t payload_len, const char *name, bool expects_response = true);
   void send_command_frame_(uint8_t opcode, uint16_t destination, std::initializer_list<uint8_t> payload,
-                           const char *name);
+                           const char *name, bool expects_response = true);
   void queue_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
-                            size_t payload_len, const char *name, bool deduplicate);
+                            size_t payload_len, const char *name, bool deduplicate, bool expects_response = true);
   void handle_command_response_(uint16_t destination, uint8_t opcode);
   void handle_robot_notification_(const uint8_t *data, size_t len);
   void process_robot_notification_(const uint8_t *data, size_t len);
@@ -213,6 +214,7 @@ class DolphinBle : public Component {
     std::string text;
     uint8_t attempts{0};
     uint32_t sent_at{0};
+    bool expects_response{true};
   };
   std::deque<PendingCommand> command_queue_;
   bool initialization_queued_{false};
