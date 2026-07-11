@@ -997,22 +997,22 @@ void DolphinBle::publish_current_cleaning_mode_(uint8_t mode) {
 }
 
 void DolphinBle::publish_pws_features_from_frame_(const std::vector<uint8_t> &frame) {
-  if (frame.size() < 12)
+  if (frame.size() < 10)
     return;
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
-  if (payload_len < 4)
+  if (payload_len < 3)
     return;
 
-  // The first payload byte is the response ACK, so the feature bitfield is
-  // raw payload[3].
-  // LSB-first bit mapping of data byte 2:
+  // Unlike the other structured responses, PWS features is a compact
+  // three-byte reply. Its feature bitfield is payload byte 2.
+  // LSB-first bit mapping:
   // bit 0: Network Sensing (WiFi support)
   // bit 1: In-Water capability
   // bit 2: Cellular support
   // bit 3: OTA support
   // bit 4: PCS support
-  uint8_t bits = payload[3];
+  uint8_t bits = payload[2];
   bool network_sensing = (bits & 0x01) != 0;
   this->in_water_capable_ = (bits & 0x02) != 0;
   bool cellular = (bits & 0x04) != 0;

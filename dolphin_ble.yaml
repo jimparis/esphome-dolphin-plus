@@ -100,12 +100,12 @@ sensor:
     kind: cycle_start_time
     name: Cycle Start Time
     device_class: timestamp
-#  - platform: dolphin_ble
-#    dolphin_ble_id: dolphin_bridge
-#    kind: temperature
-#    name: Water Temperature
-#    unit_of_measurement: "°C"
-#    device_class: temperature
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: temperature
+    name: Water Temperature
+    unit_of_measurement: "°C"
+    device_class: temperature
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: robot_type

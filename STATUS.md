@@ -6,7 +6,7 @@ Current status of the ESPHome Maytronics Dolphin BLE integration.
 
 - RTC synchronization sends a four-byte big-endian Unix timestamp to `FFF9` with opcode `0x09` on connection and hourly thereafter.
 - MU telemetry publishes PCB runtime, impeller runtime, boot count, incomplete cycles, software version, and packed LED state. It is refreshed every 30 seconds after connection.
-- PWS capabilities are decoded, including in-water and cellular support.
+- PWS capabilities are decoded from the compact three-byte reply, including in-water and cellular support.
 - The cleaning-mode select no longer emits the ESPHome `Invalid option none` warning.
 - The custom LED light supports on/off, brightness from 0-100%, and the `Blinking`, `Constant`, and `Disco` effects.
 - Status, temperature, SM, and MU requests are coordinated by the C++ component. Temperature polling is enabled only when the PWS advertises in-water support.

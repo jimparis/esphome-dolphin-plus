@@ -412,6 +412,16 @@ If the unit features `inwat=true` in `pws_features`, this command can read inter
   - **Byte 4**: Measurement Health/Status code.
   - **Bytes 5 - 9**: Epoch Timestamp of the last measurement (5 bytes).
 
+### PWS Features (`pws_features`)
+
+- **Opcode**: `1A`, **Destination**: `FFFA`, **Request Payload**: None
+- **Response Layout (3 Bytes)**: This compact reply does not follow the structured-response ACK/data convention. The feature bitfield is response payload byte 2.
+  - Bit 0: Network sensing
+  - Bit 1: In-water sensing
+  - Bit 2: Cellular
+  - Bit 3: OTA
+  - Bit 4: PCS
+
 ---
 
 ## 7. UART / POP Protocol Family (Alternative)
