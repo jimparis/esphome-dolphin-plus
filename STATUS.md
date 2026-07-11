@@ -23,18 +23,6 @@ All response payloads described here begin with a one-byte response ACK. The doc
 - `get_sm_data`: timezone is at data bytes 63-64; quick features at byte 65; weekly schedule at bytes 72-107; start delay at bytes 108-113; SSID at bytes 118-150; and configured cycle times at bytes 217-236.
 - `get_mu_data`: robot type is at bytes 132-133; flash counter at 134-137; cycle time at 138-139; PCB runtime at 140-142; impeller runtime at 143-145; turn-on count at 146-147; incomplete cycles at 148-149; packed LED state at data byte 155 (verified by live matrix testing; bytes 156-157 remain `0xFF`); clean mode at 167; software-version/checksum at 168-169; and climb period at 170. The multi-byte MU fields are little-endian.
 
-## Device Observations
-
-The phone reports the following configuration for the reference unit:
-
-- Device presentation: `Crazy Climber`; description: `DOLPHIN NAUTILUS CC PRO IOT`.
-- Power-supply serial: `Z4868YMRBM`; motor-unit serial: `Z4868YMR`.
-- Daily schedule at 09:00 with a two-hour duration.
-- LEDs enabled with the `Disco` effect.
-- Physical quick-button setting: weekly timer, every two days. This is separate from the regular weekly schedule.
-
-The phone reported 1% progress at 14:46 and 29% at 15:19, with an estimated finish at 16:44. The device data and ESPHome entities should be compared against these values when validating active-cycle timing.
-
 ## Known Discrepancies
 
 ### Configured cycle duration
@@ -54,14 +42,6 @@ Cycle Time Remaining is computed locally as configured duration minus elapsed ti
 ### Quick-button configuration
 
 Quick Features is a capability bitmask. It reports support for timer intervals, start delay, filter indication, cleaning modes, and pickup mode; it does not describe the physical power-supply button's current action. The integration does not currently expose physical-button configuration.
-
-### Cleaning state
-
-PWS state alone is not sufficient to identify an active cleaning cycle on the reference unit. A future binary cleaning sensor should combine cycle timing with state transitions and, when available, motor-unit and in-water status.
-
-### MU runtime values
-
-The current live response reports approximately 828 hours 49 minutes for PCB runtime, 828 hours 46 minutes for impeller runtime, 457 turn-ons, and 68 incomplete cycles. These values are plausible and should be retained as the current reference until compared with device diagnostics.
 
 ### Filter status
 
