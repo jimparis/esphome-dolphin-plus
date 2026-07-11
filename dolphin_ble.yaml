@@ -176,6 +176,78 @@ select:
     dolphin_ble_id: dolphin_bridge
     kind: manual_drive_direction
     name: Manual Drive Direction
+  # Day Modes
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: monday_mode
+    name: Monday Cleaning Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: tuesday_mode
+    name: Tuesday Cleaning Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: wednesday_mode
+    name: Wednesday Cleaning Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: thursday_mode
+    name: Thursday Cleaning Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: friday_mode
+    name: Friday Cleaning Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: saturday_mode
+    name: Saturday Cleaning Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: sunday_mode
+    name: Sunday Cleaning Mode
+
+switch:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: weekly_repeat
+    name: Weekly Schedule Repeat
+
+text:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: monday_time
+    name: Monday Cleaning Time
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: tuesday_time
+    name: Tuesday Cleaning Time
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: wednesday_time
+    name: Wednesday Cleaning Time
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: thursday_time
+    name: Thursday Cleaning Time
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: friday_time
+    name: Friday Cleaning Time
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: saturday_time
+    name: Saturday Cleaning Time
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: sunday_time
+    name: Sunday Cleaning Time
+    mode: text
 
 number:
   - platform: dolphin_ble

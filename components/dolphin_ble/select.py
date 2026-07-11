@@ -11,6 +11,13 @@ CONF_KIND = "kind"
 KINDS = {
     "cleaning_mode": 0,
     "manual_drive_direction": 1,
+    "monday_mode": 2,
+    "tuesday_mode": 3,
+    "wednesday_mode": 4,
+    "thursday_mode": 5,
+    "friday_mode": 6,
+    "saturday_mode": 7,
+    "sunday_mode": 8,
 }
 
 OPTIONS = {
@@ -29,6 +36,10 @@ OPTIONS = {
     ],
     1: ["Stop", "Forward", "Backward", "Right", "Left"],
 }
+
+# Day mode options prepend "Disabled" to the standard cleaning modes
+for k in range(2, 9):
+    OPTIONS[k] = ["Disabled"] + OPTIONS[0]
 
 dolphin_ble_ns = cg.esphome_ns.namespace("dolphin_ble")
 DolphinBleSelect = dolphin_ble_ns.class_("DolphinBleSelect", select.Select)
@@ -50,5 +61,7 @@ async def to_code(config):
     var = await select.new_select(config, parent, kind, options=OPTIONS[kind])
     if kind == 0:
         cg.add(parent.set_cleaning_mode_select(var))
-    else:
+    elif kind == 1:
         cg.add(parent.set_manual_drive_direction_select(var))
+    else:
+        cg.add(parent.set_day_mode_select(kind - 2, var))

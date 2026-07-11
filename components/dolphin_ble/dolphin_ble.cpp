@@ -1050,7 +1050,7 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   constexpr size_t D = 1;
   if (payload_len >= 30) {
     uint8_t faults_code = payload[18 + D];
-    if (faults_code != 0) {
+    if (faults_code != 0 && faults_code != 0xFF) {
       uint16_t faults_pcb_hrs = read_u16_be_(payload + 19 + D);
       uint8_t faults_pcb_mins = payload[21 + D];
       uint16_t faults_cycle_counter = read_u16_be_(payload + 22 + D);
@@ -1207,7 +1207,12 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
 
     // Parse weekly schedule (offset 72 to 107)
     uint8_t should_repeat = payload[72 + D];
-    std::string sched_str = "Repeat: " + std::string(should_repeat == 0 ? "Yes" : "No") + " | Schedule: ";
+    this->schedule_repeat_ = (should_repeat == 0);
+    if (this->weekly_repeat_switch_ != nullptr) {
+      this->weekly_repeat_switch_->publish_state(this->schedule_repeat_);
+    }
+
+    std::string sched_str = "Repeat: " + std::string(this->schedule_repeat_ ? "Yes" : "No") + " | Schedule: ";
     bool has_active_days = false;
 
     for (int day = 0; day < 7; day++) {
@@ -1219,13 +1224,34 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
         uint8_t minute = payload[block_offset + 3];
         uint8_t mode = payload[block_offset + 4];
 
-        if (enabled == 0x01 && day_id >= 1 && day_id <= 7) {
-          static const char *DAY_NAMES[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
-          char day_buf[48];
-          std::snprintf(day_buf, sizeof(day_buf), "%s@%02d:%02d (%s), ",
-                        DAY_NAMES[day_id - 1], hour, minute, mode_to_string_(mode).c_str());
-          sched_str += day_buf;
-          has_active_days = true;
+        if (day_id >= 1 && day_id <= 7) {
+          int d_idx = day_id - 1;
+          this->day_enabled_[d_idx] = (enabled == 0x01);
+          this->day_hour_[d_idx] = hour;
+          this->day_minute_[d_idx] = minute;
+          this->day_mode_[d_idx] = mode;
+
+          // Publish time string to text entity
+          if (this->day_time_texts_[d_idx] != nullptr) {
+            char time_buf[16];
+            std::snprintf(time_buf, sizeof(time_buf), "%02d:%02d", hour, minute);
+            this->day_time_texts_[d_idx]->publish_state(time_buf);
+          }
+
+          // Publish mode to select entity
+          if (this->day_mode_selects_[d_idx] != nullptr) {
+            std::string mode_str = (enabled == 0x01) ? mode_to_string_(mode) : "Disabled";
+            this->day_mode_selects_[d_idx]->publish_state(mode_str);
+          }
+
+          if (enabled == 0x01) {
+            static const char *DAY_NAMES[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+            char day_buf[48];
+            std::snprintf(day_buf, sizeof(day_buf), "%s@%02d:%02d (%s), ",
+                          DAY_NAMES[d_idx], hour, minute, mode_to_string_(mode).c_str());
+            sched_str += day_buf;
+            has_active_days = true;
+          }
         }
       }
     }
@@ -1251,6 +1277,10 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
       this->publish_text_(TEXT_DELAY_TIMER, delay_buf);
     } else {
       this->publish_text_(TEXT_DELAY_TIMER, "Disabled");
+    }
+
+    if (payload_len >= 215) {
+      this->schedule_trigger_by_ = payload[213 + D];
     }
 
     if (payload_len >= 237) {
@@ -1345,6 +1375,8 @@ void DolphinBleSelect::control(const std::string &value) {
     this->parent_->set_cleaning_mode_option(value);
   } else if (this->kind_ == 1) {
     this->parent_->set_manual_drive_direction_option(value);
+  } else {
+    this->parent_->set_day_mode_option(this->kind_ - 2, value);
   }
 }
 
@@ -1392,6 +1424,82 @@ void DolphinBle::write_led_state(light::LightState *state) {
   // Send the command
   uint8_t enabled_byte = enabled ? 0x01 : 0x00;
   this->send_command_frame_(0x10, 0xFFF7, {enabled_byte, intensity, mode}, "led_control");
+}
+
+void DolphinBle::set_weekly_repeat_state(bool state) {
+  if (this->schedule_repeat_ == state)
+    return;
+  this->schedule_repeat_ = state;
+  this->send_weekly_schedule_();
+}
+
+void DolphinBle::set_day_time_option(uint8_t day, const std::string &value) {
+  int hour = 9;
+  int minute = 0;
+  if (std::sscanf(value.c_str(), "%d:%d", &hour, &minute) == 2) {
+    hour = std::clamp(hour, 0, 23);
+    minute = std::clamp(minute, 0, 59);
+    if (this->day_hour_[day] == hour && this->day_minute_[day] == minute)
+      return;
+    this->day_hour_[day] = hour;
+    this->day_minute_[day] = minute;
+    this->send_weekly_schedule_();
+  } else {
+    ESP_LOGE(TAG, "Invalid time format: %s. Use HH:MM", value.c_str());
+  }
+}
+
+void DolphinBle::set_day_mode_option(uint8_t day, const std::string &value) {
+  bool enabled = (value != "Disabled");
+  uint8_t mode = 1;
+  if (enabled) {
+    mode = mode_from_string_(value);
+  }
+
+  if (this->day_enabled_[day] == enabled && this->day_mode_[day] == mode)
+    return;
+
+  this->day_enabled_[day] = enabled;
+  this->day_mode_[day] = mode;
+  this->send_weekly_schedule_();
+}
+
+void DolphinBle::send_weekly_schedule_() {
+  std::vector<uint8_t> payload;
+  payload.reserve(37);
+
+  // Byte 0: Repeat (00 = repeat, 01 = once)
+  payload.push_back(this->schedule_repeat_ ? 0x00 : 0x01);
+
+  // Byte 1: Trigger source
+  payload.push_back(this->schedule_trigger_by_);
+
+  // Bytes 2-36: 7 day blocks
+  for (int day = 0; day < 7; day++) {
+    payload.push_back(static_cast<uint8_t>(day + 1)); // Day ID: 1 (Mon) to 7 (Sun)
+    payload.push_back(this->day_enabled_[day] ? 0x01 : 0x00);
+    payload.push_back(this->day_hour_[day]);
+    payload.push_back(this->day_minute_[day]);
+    payload.push_back(this->day_mode_[day]);
+  }
+
+  ESP_LOGI(TAG, "Sending weekly schedule: Repeat=%d, Trigger=0x%02X",
+           this->schedule_repeat_, this->schedule_trigger_by_);
+  this->send_command_frame_(0x45, 0xFFF9, payload.data(), payload.size(), "set_weekly_timer");
+}
+
+void DolphinBleSwitch::write_state(bool state) {
+  if (this->parent_ != nullptr) {
+    this->parent_->set_weekly_repeat_state(state);
+  }
+  this->publish_state(state);
+}
+
+void DolphinBleText::control(const std::string &value) {
+  if (this->parent_ != nullptr) {
+    this->parent_->set_day_time_option(this->kind_, value);
+  }
+  this->publish_state(value);
 }
 
 }  // namespace dolphin_ble

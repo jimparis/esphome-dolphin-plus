@@ -17,6 +17,8 @@
 #include "esphome/components/time/real_time_clock.h"
 #include "esphome/components/light/light_output.h"
 #include "esphome/components/light/light_state.h"
+#include "esphome/components/switch/switch.h"
+#include "esphome/components/text/text.h"
 
 #include "esp_gap_ble_api.h"
 #include "esp_gatt_common_api.h"
@@ -53,6 +55,15 @@ class DolphinBle : public Component {
   void press_quit_manual_drive();
   void set_cleaning_mode_option(const std::string &option);
   void set_manual_drive_direction_option(const std::string &option);
+
+  void set_weekly_repeat_switch(switch_::Switch *sw) { this->weekly_repeat_switch_ = sw; }
+  void set_day_time_text(uint8_t day, text::Text *txt) { this->day_time_texts_[day] = txt; }
+  void set_day_mode_select(uint8_t day, select::Select *sel) { this->day_mode_selects_[day] = sel; }
+
+  void set_weekly_repeat_state(bool state);
+  void set_day_time_option(uint8_t day, const std::string &value);
+  void set_day_mode_option(uint8_t day, const std::string &value);
+  void send_weekly_schedule_();
 
  protected:
   enum NumericSensorKind : uint8_t {
@@ -212,6 +223,17 @@ class DolphinBle : public Component {
   uint8_t last_led_intensity_{0};
   uint8_t last_led_mode_{0};
   bool last_led_initialized_{false};
+
+  switch_::Switch *weekly_repeat_switch_{nullptr};
+  std::array<text::Text *, 7> day_time_texts_{};
+  std::array<select::Select *, 7> day_mode_selects_{};
+
+  bool schedule_repeat_{true};
+  uint8_t schedule_trigger_by_{0x01};
+  bool day_enabled_[7]{false, false, false, false, false, false, false};
+  uint8_t day_hour_[7]{9, 9, 9, 9, 9, 9, 9};
+  uint8_t day_minute_[7]{0, 0, 0, 0, 0, 0, 0};
+  uint8_t day_mode_[7]{1, 1, 1, 1, 1, 1, 1};
 };
 
 class DolphinBleButton : public button::Button {
@@ -259,6 +281,28 @@ class DolphinBleLight : public Component, public light::LightOutput {
   }
  protected:
   DolphinBle *parent_;
+};
+
+class DolphinBleSwitch : public switch_::Switch {
+ public:
+  DolphinBleSwitch(DolphinBle *parent, uint8_t kind) : parent_(parent), kind_(kind) {}
+
+ protected:
+  void write_state(bool state) override;
+
+  DolphinBle *parent_;
+  uint8_t kind_;
+};
+
+class DolphinBleText : public text::Text {
+ public:
+  DolphinBleText(DolphinBle *parent, uint8_t kind) : parent_(parent), kind_(kind) {}
+
+ protected:
+  void control(const std::string &value) override;
+
+  DolphinBle *parent_;
+  uint8_t kind_;
 };
 
 }  // namespace dolphin_ble
