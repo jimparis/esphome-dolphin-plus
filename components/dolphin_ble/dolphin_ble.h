@@ -57,6 +57,7 @@ class DolphinBle : public Component {
   void press_pickup_mode();
   void press_quit_manual_drive();
   void press_refresh_status();
+  void press_reset_filter();
   void set_cleaning_mode_option(const std::string &option);
   void set_manual_drive_direction_option(const std::string &option);
 

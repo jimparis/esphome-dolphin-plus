@@ -1401,6 +1401,9 @@ void DolphinBleButton::press_action() {
     case 3:
       this->parent_->press_refresh_status();
       break;
+    case 6:
+      this->parent_->press_reset_filter();
+      break;
     default:
       break;
   }
@@ -1409,6 +1412,10 @@ void DolphinBleButton::press_action() {
 void DolphinBle::press_start_cleaning() { this->send_command_frame_(0x06, 0xFFF8, {}, "start_up_dolphin"); }
 
 void DolphinBle::press_stop_cleaning() { this->send_command_frame_(0x05, 0xFFF8, {}, "shutdown_dolphin"); }
+
+void DolphinBle::press_reset_filter() {
+  this->send_command_frame_(0x0a, 0xFFF7, {}, "reset_filter_indicator", false);
+}
 
 void DolphinBle::press_pickup_mode() {
   this->publish_current_cleaning_mode_(0x0b);

@@ -15,6 +15,7 @@ KINDS = {
     "refresh_status": 3,
     "manual_drive": 4,
     "quit_manual_drive": 5,
+    "reset_filter": 6,
 }
 
 dolphin_ble_ns = cg.esphome_ns.namespace("dolphin_ble")

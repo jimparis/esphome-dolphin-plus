@@ -169,6 +169,10 @@ button:
     dolphin_ble_id: dolphin_bridge
     kind: refresh_status
     name: Refresh Status
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: reset_filter
+    name: Reset Filter Indicator
 
 select:
   - platform: dolphin_ble
