@@ -278,6 +278,10 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
       this->last_status_poll_ = 0;
       this->last_mu_poll_ = 0;
       this->last_temp_poll_ = 0;
+      this->last_remaining_publish_ = 0;
+      this->cycle_active_ = false;
+      this->current_cycle_start_time_ = 0;
+      this->publish_cycle_time_remaining_();
       this->rx_text_buffer_.clear();
       this->remote_service_start_ = 0;
       this->remote_service_end_ = 0;
@@ -342,6 +346,12 @@ void DolphinBle::handle_polling_() {
         this->last_rtc_sync_ = now;
       }
     }
+  }
+
+  if (this->numeric_sensors_[NUMERIC_CYCLE_TIME_REMAINING] != nullptr &&
+      now - this->last_remaining_publish_ >= 1000) {
+    this->publish_cycle_time_remaining_();
+    this->last_remaining_publish_ = now;
   }
 }
 
@@ -1057,10 +1067,9 @@ void DolphinBle::publish_numeric_(uint8_t kind, float value) {
     this->numeric_sensors_[kind]->publish_state(value);
 }
 
-void DolphinBle::publish_configured_cycle_duration_() {
+bool DolphinBle::get_configured_cycle_duration_seconds_(uint32_t *seconds) const {
   if (!this->configured_cycle_times_known_) {
-    this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
-    return;
+    return false;
   }
   uint16_t minutes;
   if (this->selected_cleaning_mode_ >= 1 && this->selected_cleaning_mode_ <= 11) {
@@ -1068,14 +1077,41 @@ void DolphinBle::publish_configured_cycle_duration_() {
   } else if (this->selected_cleaning_mode_ == 15) {
     minutes = this->stairs_cycle_time_mins_;
   } else {
+    return false;
+  }
+  if (minutes == 0 || minutes == 0xffff || minutes > 24 * 60) {
+    return false;
+  }
+  *seconds = static_cast<uint32_t>(minutes) * 60UL;
+  return true;
+}
+
+void DolphinBle::publish_configured_cycle_duration_() {
+  uint32_t seconds = 0;
+  if (!this->get_configured_cycle_duration_seconds_(&seconds)) {
     this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
     return;
   }
-  if (minutes == 0 || minutes == 0xffff || minutes > 24 * 60) {
-    this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
-  } else {
-    this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(minutes * 60));
+  this->publish_numeric_(NUMERIC_CYCLE_DURATION, static_cast<float>(seconds));
+}
+
+void DolphinBle::publish_cycle_time_remaining_() {
+  uint32_t duration_seconds = 0;
+  if (!this->cycle_active_ || this->current_cycle_start_time_ == 0 ||
+      !this->get_configured_cycle_duration_seconds_(&duration_seconds) || this->time_id_ == nullptr) {
+    this->publish_numeric_(NUMERIC_CYCLE_TIME_REMAINING, NAN);
+    return;
   }
+
+  auto now = this->time_id_->now();
+  if (!now.is_valid() || now.timestamp < this->current_cycle_start_time_) {
+    this->publish_numeric_(NUMERIC_CYCLE_TIME_REMAINING, NAN);
+    return;
+  }
+
+  uint32_t elapsed = now.timestamp - this->current_cycle_start_time_;
+  uint32_t remaining = elapsed >= duration_seconds ? 0 : duration_seconds - elapsed;
+  this->publish_numeric_(NUMERIC_CYCLE_TIME_REMAINING, static_cast<float>(remaining));
 }
 
 void DolphinBle::publish_text_(uint8_t kind, const std::string &value) {
@@ -1092,6 +1128,8 @@ void DolphinBle::publish_current_cleaning_mode_(uint8_t mode) {
   // Stairs is product-feature gated and is not offered by the generic select.
   if (this->cleaning_mode_select_ != nullptr && mode >= 1 && mode <= 11)
     this->cleaning_mode_select_->publish_state(value);
+  this->publish_configured_cycle_duration_();
+  this->publish_cycle_time_remaining_();
 }
 
 void DolphinBle::publish_pws_features_from_frame_(const std::vector<uint8_t> &frame) {
@@ -1177,7 +1215,10 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
     bool cycle_active = payload[2] == 0x05 || payload[1] == 0x01 || payload[1] == 0x02 || payload[1] == 0x03;
     bool timestamp_sane = start_time >= 1577836800UL && start_time <= 4102444800UL;
     if (!cycle_active || !timestamp_sane) {
+      this->cycle_active_ = false;
+      this->current_cycle_start_time_ = 0;
       this->publish_numeric_(NUMERIC_CYCLE_START_TIME, NAN);
+      this->publish_cycle_time_remaining_();
     } else {
       bool too_far_in_future = false;
       if (this->time_id_ != nullptr) {
@@ -1185,9 +1226,15 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
         too_far_in_future = now.is_valid() && start_time > now.timestamp + 86400UL;
       }
       if (too_far_in_future) {
+        this->cycle_active_ = false;
+        this->current_cycle_start_time_ = 0;
         this->publish_numeric_(NUMERIC_CYCLE_START_TIME, NAN);
+        this->publish_cycle_time_remaining_();
       } else {
+        this->cycle_active_ = true;
+        this->current_cycle_start_time_ = start_time;
         this->publish_numeric_(NUMERIC_CYCLE_START_TIME, static_cast<float>(start_time));
+        this->publish_cycle_time_remaining_();
       }
     }
   }
@@ -1440,6 +1487,7 @@ void DolphinBle::set_cleaning_mode_option(const std::string &option) {
   if (this->cleaning_mode_select_ != nullptr)
     this->cleaning_mode_select_->publish_state(mode_to_string_(mode));
   this->publish_configured_cycle_duration_();
+  this->publish_cycle_time_remaining_();
   this->send_command_frame_(0x03, 0xFFE9, {mode}, "set_cleaning_mode");
 }
 

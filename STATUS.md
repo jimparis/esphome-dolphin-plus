@@ -8,6 +8,8 @@ Current status of the ESPHome Maytronics Dolphin BLE integration.
 - MU telemetry publishes PCB runtime, impeller runtime, boot count, incomplete cycles, software version, and packed LED state. It is refreshed every 30 seconds after connection.
 - PWS capabilities are decoded from the compact three-byte reply, including in-water and cellular support.
 - The cleaning-mode select no longer emits the ESPHome `Invalid option none` warning.
+- Cleaning mode is exposed as a single select entity. Telemetry updates its current state and user changes send the corresponding mode command.
+- Cycle duration is derived from the local `SM/62/1` cleaning-duration table, and cycle time remaining is derived from active-cycle start time plus that duration.
 - The custom LED light supports on/off, brightness from 0-100%, and the `Blinking`, `Constant`, and `Disco` effects.
 - Status, SM, and MU requests are coordinated by the C++ component. Temperature polling remains disabled pending a valid, non-disruptive response from this unit.
 
@@ -39,11 +41,13 @@ The status estimate table and SM bytes 217-236 are not used by the reference pro
 
 ### Cleaning mode
 
-When idle, the status frame can report active cleaning mode `0x00`, which the integration publishes as `None`. The configured or next cleaning mode may instead be represented by the MU block, schedule, start-delay data, or the last mode command. Active and configured modes should remain separate entities.
+When idle, the status frame can report active cleaning mode `0x00`. The integration does not publish `None` into the cleaning-mode select because that is not a valid command option; the select retains the last valid mode reported by telemetry or selected by the user.
 
 ### Cycle start time
 
 The integration reads the UTC cycle start time from raw payload bytes 11-14, big-endian, with no epoch adjustment. A zero or unset field is published as `NA` when no active cycle is present. The value is a fixed start timestamp rather than the current PWS clock. If its RTC has been stale, the controller can report an old cycle start; after RTC synchronization, it recomputes the active cycle's start from the corrected clock and elapsed run time.
+
+Cycle Time Remaining is computed locally as configured duration minus elapsed time since the active cycle start timestamp. It is published as `NA` when the cycle is inactive, the timestamp is invalid, or local time is not available.
 
 ### Quick-button configuration
 

@@ -22,6 +22,7 @@ KINDS = {
     "mu_not_completed_cycles": 10,
     "mu_climb_period": 11,
     "sm_timezone": 12,
+    "cycle_time_remaining": 13,
 }
 
 CONFIG_SCHEMA = sensor.sensor_schema().extend(

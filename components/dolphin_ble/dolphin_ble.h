@@ -32,7 +32,7 @@ namespace dolphin_ble {
 
 class DolphinBle : public Component {
  public:
-  static constexpr size_t NUM_NUMERIC_SENSORS = 13;
+  static constexpr size_t NUM_NUMERIC_SENSORS = 14;
   static constexpr size_t NUM_TEXT_SENSORS = 11;
 
   void setup() override;
@@ -86,6 +86,7 @@ class DolphinBle : public Component {
     NUMERIC_MU_NOT_COMPLETED_CYCLES = 10,
     NUMERIC_MU_CLIMB_PERIOD = 11,
     NUMERIC_SM_TIMEZONE = 12,
+    NUMERIC_CYCLE_TIME_REMAINING = 13,
   };
 
   enum TextSensorKind : uint8_t {
@@ -171,6 +172,8 @@ class DolphinBle : public Component {
   void publish_sm_data_from_frame_(const std::vector<uint8_t> &frame);
   void publish_pws_features_from_frame_(const std::vector<uint8_t> &frame);
   void publish_configured_cycle_duration_();
+  bool get_configured_cycle_duration_seconds_(uint32_t *seconds) const;
+  void publish_cycle_time_remaining_();
 
   std::string mac_address_;
   std::string name_filter_;
@@ -240,6 +243,9 @@ class DolphinBle : public Component {
                                                          120, 120, 600, 120, 5}};
   uint16_t stairs_cycle_time_mins_{120};
   bool configured_cycle_times_known_{true};
+  bool cycle_active_{false};
+  uint32_t current_cycle_start_time_{0};
+  uint32_t last_remaining_publish_{0};
   uint8_t selected_manual_drive_direction_{1};
   float selected_manual_drive_speed_{50.0f};
   light::LightState *led_light_{nullptr};

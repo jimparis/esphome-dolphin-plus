@@ -59,10 +59,6 @@ text_sensor:
     name: PWS State
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: cleaning_mode
-    name: Cleaning Mode
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
     kind: in_water_status
     name: In Water Status
   - platform: dolphin_ble
@@ -111,6 +107,12 @@ sensor:
     kind: cycle_start_time
     name: Cycle Start Time
     device_class: timestamp
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cycle_time_remaining
+    name: Cycle Time Remaining
+    unit_of_measurement: "s"
+    device_class: duration
 #  - platform: dolphin_ble
 #    dolphin_ble_id: dolphin_bridge
 #    kind: temperature
@@ -178,7 +180,7 @@ select:
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: cleaning_mode
-    name: Cleaning Mode Control
+    name: Cleaning Mode
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: manual_drive_direction
