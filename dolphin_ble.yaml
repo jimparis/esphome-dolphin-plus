@@ -10,6 +10,10 @@ esp32:
   board: esp32dev
   framework:
     type: esp-idf
+    advanced:
+      # smaller binary, more RAM
+      minimum_chip_revision: "3.1"
+      sram1_as_iram: true
     sdkconfig_options:
       CONFIG_BT_GATTC_ENABLE: y
       CONFIG_BT_GATTS_ENABLE: y
@@ -52,9 +56,8 @@ dolphin_ble:
   mac_address: !secret dolphin_mac
   name_filter: !secret dolphin_name_filter
   time_id: sntp_time
-  # These details are profile-specific and may differ across robot models or firmware.
+  # This detail is profile-specific and may differ across robot models or firmware.
   temperature_supported: false
-  mu_led_data_offset: 155
 
 time:
   - platform: sntp

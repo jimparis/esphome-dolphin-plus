@@ -43,7 +43,6 @@ class DolphinBle : public Component {
   void set_name_filter(const std::string &name) { this->name_filter_ = name; }
   void set_time_id(time::RealTimeClock *time_id) { this->time_id_ = time_id; }
   void set_temperature_supported(bool supported) { this->temperature_supported_ = supported; }
-  void set_mu_led_data_offset(uint16_t offset) { this->mu_led_data_offset_ = offset; }
 
   void set_numeric_sensor(uint8_t kind, sensor::Sensor *sensor);
   void set_text_sensor(uint8_t kind, text_sensor::TextSensor *sensor);
@@ -197,7 +196,6 @@ class DolphinBle : public Component {
   bool in_water_capability_known_{false};
   bool in_water_capable_{false};
   bool temperature_supported_{false};
-  uint16_t mu_led_data_offset_{157};
 
   esp_gatt_if_t gatts_if_{ESP_GATT_IF_NONE};
   esp_gatt_if_t gattc_if_{ESP_GATT_IF_NONE};

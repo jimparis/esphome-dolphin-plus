@@ -19,6 +19,7 @@ constexpr const char *IOT_SERVICE_UUID = "fd5abba0-3935-11e5-85a6-0002a5d5c51b";
 constexpr const char *IOT_CHAR_UUID = "fd5abba1-3935-11e5-85a6-0002a5d5c51b";
 constexpr const char *CCCD_UUID = "00002902-0000-1000-8000-00805f9b34fb";
 constexpr uint16_t INVALID_HANDLE = 0;
+constexpr uint16_t MU_LED_DATA_OFFSET = 155;
 }  // namespace
 
 DolphinBle *DolphinBle::instance_ = nullptr;
@@ -27,8 +28,8 @@ void DolphinBle::setup() {
   instance_ = this;
   ESP_LOGI(TAG, "Setting up Dolphin BLE bridge for %s (%s)", this->mac_address_.c_str(),
            this->name_filter_.empty() ? "no name filter" : this->name_filter_.c_str());
-  ESP_LOGI(TAG, "Local protocol profile: MU leds.start=%u, temperature=%s",
-           this->mu_led_data_offset_, this->temperature_supported_ ? "enabled" : "disabled");
+  ESP_LOGI(TAG, "Local protocol profile: MU LED data offset=%u, temperature=%s",
+           MU_LED_DATA_OFFSET, this->temperature_supported_ ? "enabled" : "disabled");
 
   this->parsed_mac_ = this->parse_mac_();
   if (!this->parsed_mac_) {
@@ -1313,14 +1314,13 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
       this->publish_text_(TEXT_MU_SW_VERSION, ver_buf);
     }
 
-    // This field comes from a robot-specific MU protocol profile.
-    // mu_led_data_offset_ is post-ACK; add one for the raw response payload.
+    // This offset is post-ACK; add one for the raw response payload.
     // bits 3-7 are intensity in 5% increments, bit 0 is Disco, and bit 1
     // is Constant. No mode bit means Blinking.
-    size_t led_raw_offset = static_cast<size_t>(this->mu_led_data_offset_) + 1;
+    size_t led_raw_offset = static_cast<size_t>(MU_LED_DATA_OFFSET) + 1;
     if (led_raw_offset >= payload_len) {
-      ESP_LOGW(TAG, "Configured MU LED data offset %u is outside payload length %u",
-               this->mu_led_data_offset_, static_cast<unsigned>(payload_len));
+      ESP_LOGW(TAG, "MU LED data offset %u is outside payload length %u",
+               MU_LED_DATA_OFFSET, static_cast<unsigned>(payload_len));
       return;
     }
     uint8_t led_packed = payload[led_raw_offset];
@@ -1335,7 +1335,7 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
 
     if (this->protocol_debug_logging_) {
       ESP_LOGD(TAG, "Telemetry LED packed byte data[%u]/raw[%u]=0x%02X enabled=%d intensity=%u mode=%s",
-               this->mu_led_data_offset_, static_cast<unsigned>(led_raw_offset), led_packed, led_on,
+               MU_LED_DATA_OFFSET, static_cast<unsigned>(led_raw_offset), led_packed, led_on,
                led_intensity, led_effect.c_str());
     }
     if (this->led_light_ != nullptr) {
