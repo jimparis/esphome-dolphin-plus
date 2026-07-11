@@ -79,7 +79,7 @@ Although the PWS processes LED control writes (`FFF7/10`) and manual drive write
 
 Start and stop cleaning commands are also treated as write-only on the reference unit: they can take effect physically without producing the expected clean response frame. After control writes, the component queues an immediate `system_status` refresh and then continues the normal 2-second status polling cadence.
 
-Timezone and RTC sync writes are also treated as write-only. The reference unit applies them without returning a clean response frame, so waiting for ACKs only delays initialization.
+Timezone, RTC sync, and cloud-connection-status writes are treated as write-only. The reference unit applies or accepts them without returning clean response frames, so waiting for ACKs only delays initialization. Command timeout warnings are hidden unless `Protocol Debug Logging` is enabled.
 
 ## Future Work
 

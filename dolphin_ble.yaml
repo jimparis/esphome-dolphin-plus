@@ -16,6 +16,8 @@ esp32:
 
 logger:
   level: DEBUG
+  logs:
+    esp-idf: INFO
 
 web_server:
 

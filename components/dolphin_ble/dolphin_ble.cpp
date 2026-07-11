@@ -370,7 +370,7 @@ void DolphinBle::queue_initialization_() {
   this->queue_command_frame_(0x01, 0xFFFD, mu_payload, sizeof(mu_payload), "get_mu_data", true);
   this->queue_command_frame_(0x07, 0xFFF8, nullptr, 0, "system_status", true);
   this->queue_command_frame_(0x1a, 0xFFFA, nullptr, 0, "pws_features", true);
-  this->queue_command_frame_(0xdf, 0xFFFE, nullptr, 0, "cloud_connection_status", true);
+  this->queue_command_frame_(0xdf, 0xFFFE, nullptr, 0, "cloud_connection_status", true, false);
   if (this->temperature_supported_ && this->numeric_sensors_[NUMERIC_TEMPERATURE] != nullptr)
     this->queue_command_frame_(0x09, 0xFFF8, nullptr, 0, "temperature", true);
 }
@@ -475,7 +475,8 @@ void DolphinBle::handle_command_queue_() {
   if (pending.sent_at != 0 && now - pending.sent_at < 2000)
     return;
   if (pending.attempts >= 2) {
-    ESP_LOGW(TAG, "Command %s timed out after two attempts", pending.name.c_str());
+    if (this->protocol_debug_logging_)
+      ESP_LOGW(TAG, "Command %s timed out after two attempts", pending.name.c_str());
     this->command_queue_.pop_front();
     return;
   }
@@ -487,7 +488,7 @@ void DolphinBle::handle_command_queue_() {
     ESP_LOGI(TAG, "Sending command %s opcode=0x%02x dest=0x%04x attempt=%u text=\"%s\"",
              pending.name.c_str(), pending.opcode, pending.destination, pending.attempts,
              pending.text.c_str());
-  } else if (pending.name != "system_status" && pending.name != "get_mu_data") {
+  } else if (pending.expects_response && pending.name != "system_status" && pending.name != "get_mu_data") {
     ESP_LOGD(TAG, "Sending command %s opcode=0x%02x dest=0x%04x attempt=%u",
              pending.name.c_str(), pending.opcode, pending.destination, pending.attempts);
   }
