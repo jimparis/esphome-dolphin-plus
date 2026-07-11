@@ -62,10 +62,12 @@ class DolphinBle : public Component {
   void set_manual_drive_direction_option(const std::string &option);
 
   void set_weekly_repeat_switch(switch_::Switch *sw) { this->weekly_repeat_switch_ = sw; }
+  void set_protocol_debug_switch(switch_::Switch *sw) { this->protocol_debug_switch_ = sw; }
   void set_day_time_text(uint8_t day, text::Text *txt) { this->day_time_texts_[day] = txt; }
   void set_day_mode_select(uint8_t day, select::Select *sel) { this->day_mode_selects_[day] = sel; }
 
   void set_weekly_repeat_state(bool state);
+  void set_protocol_debug_logging_state(bool state);
   void set_day_time_option(uint8_t day, const std::string &value);
   void set_day_mode_option(uint8_t day, const std::string &value);
   void send_weekly_schedule_();
@@ -133,6 +135,7 @@ class DolphinBle : public Component {
                            const char *name, bool expects_response = true);
   void queue_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
                             size_t payload_len, const char *name, bool deduplicate, bool expects_response = true);
+  void request_status_burst_();
   void handle_command_response_(uint16_t destination, uint8_t opcode);
   void handle_robot_notification_(const uint8_t *data, size_t len);
   void process_robot_notification_(const uint8_t *data, size_t len);
@@ -226,6 +229,7 @@ class DolphinBle : public Component {
   uint32_t last_mu_poll_{0};
   uint32_t last_temp_poll_{0};
   uint32_t last_rtc_sync_{0};
+  uint32_t fast_status_until_{0};
   time::RealTimeClock *time_id_{nullptr};
 
   std::string rx_text_buffer_;
@@ -256,6 +260,8 @@ class DolphinBle : public Component {
   bool last_led_initialized_{false};
 
   switch_::Switch *weekly_repeat_switch_{nullptr};
+  switch_::Switch *protocol_debug_switch_{nullptr};
+  bool protocol_debug_logging_{false};
   std::array<text::Text *, 7> day_time_texts_{};
   std::array<select::Select *, 7> day_mode_selects_{};
 

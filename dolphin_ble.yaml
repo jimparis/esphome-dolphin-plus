@@ -220,6 +220,10 @@ switch:
     dolphin_ble_id: dolphin_bridge
     kind: weekly_repeat
     name: Schedule Repeat
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: protocol_debug_logging
+    name: Protocol Debug Logging
 
 text:
   - platform: dolphin_ble

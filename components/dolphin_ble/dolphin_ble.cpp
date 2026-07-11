@@ -179,7 +179,8 @@ void DolphinBle::on_gatts_event_(esp_gatts_cb_event_t event, esp_gatt_if_t gatts
       break;
 
     case ESP_GATTS_CONF_EVT:
-      ESP_LOGD(TAG, "Local notify confirmation, status=%u", param->conf.status);
+      if (this->protocol_debug_logging_)
+        ESP_LOGD(TAG, "Local notify confirmation, status=%u", param->conf.status);
       break;
 
     case ESP_GATTS_WRITE_EVT:
@@ -278,6 +279,7 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
       this->last_status_poll_ = 0;
       this->last_mu_poll_ = 0;
       this->last_temp_poll_ = 0;
+      this->fast_status_until_ = 0;
       this->last_remaining_publish_ = 0;
       this->cycle_active_ = false;
       this->current_cycle_start_time_ = 0;
@@ -317,7 +319,10 @@ void DolphinBle::handle_polling_() {
 
   // Polls are deduplicated against queued/in-flight commands. This prevents
   // simultaneous status, MU and temperature requests at the 30-second boundary.
-  if (now - this->last_status_poll_ >= 2000) {
+  bool fast_status =
+      this->fast_status_until_ != 0 && static_cast<int32_t>(this->fast_status_until_ - now) > 0;
+  uint32_t status_interval = fast_status ? 1000 : 2000;
+  if (now - this->last_status_poll_ >= status_interval) {
     this->queue_command_frame_(0x07, 0xFFF8, nullptr, 0, "system_status", true);
     this->last_status_poll_ = now;
   }
@@ -447,14 +452,23 @@ void DolphinBle::queue_command_frame_(uint8_t opcode, uint16_t destination, cons
     }
   }
   this->command_queue_.push_back({opcode, destination, name, text, 0, 0, expects_response});
-  ESP_LOGD(TAG, "Queued command %s opcode=0x%02x dest=0x%04x payload=%s expects_response=%d", name, opcode,
-           destination, payload_len ? format_hex_(payload, payload_len).c_str() : "", expects_response);
+  if (this->protocol_debug_logging_) {
+    ESP_LOGD(TAG, "Queued command %s opcode=0x%02x dest=0x%04x payload=%s expects_response=%d", name, opcode,
+             destination, payload_len ? format_hex_(payload, payload_len).c_str() : "", expects_response);
+  }
 }
 
 void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination,
                                      std::initializer_list<uint8_t> payload, const char *name, bool expects_response) {
   std::vector<uint8_t> data(payload.begin(), payload.end());
   this->send_command_frame_(opcode, destination, data.data(), data.size(), name, expects_response);
+}
+
+void DolphinBle::request_status_burst_() {
+  uint32_t now = millis();
+  this->fast_status_until_ = now + 60000UL;
+  this->last_status_poll_ = 0;
+  this->queue_command_frame_(0x07, 0xFFF8, nullptr, 0, "system_status", true);
 }
 
 void DolphinBle::handle_command_queue_() {
@@ -475,9 +489,14 @@ void DolphinBle::handle_command_queue_() {
   pending.attempts++;
   pending.sent_at = now == 0 ? 1 : now;
   this->tx_text_buffer_ = pending.text;
-  ESP_LOGI(TAG, "Sending command %s opcode=0x%02x dest=0x%04x attempt=%u text=\"%s\"",
-           pending.name.c_str(), pending.opcode, pending.destination, pending.attempts,
-           pending.text.c_str());
+  if (this->protocol_debug_logging_) {
+    ESP_LOGI(TAG, "Sending command %s opcode=0x%02x dest=0x%04x attempt=%u text=\"%s\"",
+             pending.name.c_str(), pending.opcode, pending.destination, pending.attempts,
+             pending.text.c_str());
+  } else if (pending.name != "system_status") {
+    ESP_LOGD(TAG, "Sending command %s opcode=0x%02x dest=0x%04x attempt=%u",
+             pending.name.c_str(), pending.opcode, pending.destination, pending.attempts);
+  }
   this->send_local_notification_text_(pending.text);
   if (!pending.expects_response) {
     this->command_queue_.pop_front();
@@ -489,11 +508,14 @@ void DolphinBle::handle_command_response_(uint16_t destination, uint8_t opcode) 
     return;
   const auto &pending = this->command_queue_.front();
   if (pending.destination != destination || pending.opcode != opcode) {
-    ESP_LOGD(TAG, "Unsolicited/non-matching response dest=0x%04x opcode=0x%02x while waiting for %s",
-             destination, opcode, pending.name.c_str());
+    if (this->protocol_debug_logging_) {
+      ESP_LOGD(TAG, "Unsolicited/non-matching response dest=0x%04x opcode=0x%02x while waiting for %s",
+               destination, opcode, pending.name.c_str());
+    }
     return;
   }
-  ESP_LOGD(TAG, "Command %s received matching response", pending.name.c_str());
+  if (this->protocol_debug_logging_)
+    ESP_LOGD(TAG, "Command %s received matching response", pending.name.c_str());
   this->command_queue_.pop_front();
 }
 
@@ -566,14 +588,16 @@ void DolphinBle::maybe_log_complete_text_frame_() {
         (static_cast<uint16_t>(frame[frame.size() - 2]) << 8) | frame[frame.size() - 1];
     uint16_t dest = (static_cast<uint16_t>(frame[2]) << 8) | frame[3];
 
-    if (payload_len < 100) {
-      ESP_LOGI(TAG,
-               "Robot text frame src=0x%02x dest=0x%04x opcode=0x%02x payload_len=%u checksum=%s hex=%s",
-               frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad", frame_hex.c_str());
-    } else {
-      ESP_LOGI(TAG,
-               "Robot text frame src=0x%02x dest=0x%04x opcode=0x%02x payload_len=%u checksum=%s",
-               frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad");
+    if (this->protocol_debug_logging_) {
+      if (payload_len < 100) {
+        ESP_LOGI(TAG,
+                 "Robot text frame src=0x%02x dest=0x%04x opcode=0x%02x payload_len=%u checksum=%s hex=%s",
+                 frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad", frame_hex.c_str());
+      } else {
+        ESP_LOGI(TAG,
+                 "Robot text frame src=0x%02x dest=0x%04x opcode=0x%02x payload_len=%u checksum=%s",
+                 frame[1], dest, frame[4], payload_len, calculated == received ? "ok" : "bad");
+      }
     }
 
     if (calculated == received)
@@ -616,7 +640,7 @@ void DolphinBle::parse_robot_text_frame_(const std::vector<uint8_t> &frame) {
     return;
   }
   if (dest == 0xFFFD && opcode == 0x01) {
-    if (payload_len >= 160) {
+    if (this->protocol_debug_logging_ && payload_len >= 160) {
       ESP_LOGI(TAG, "MU payload bytes 130-160: %s", this->format_hex_(payload + 130, 30).c_str());
       ESP_LOGI(TAG, "MU LED window: raw[156]=0x%02X raw[157]=0x%02X raw[158]=0x%02X "
                     "(data[155], data[156], data[157])",
@@ -626,7 +650,7 @@ void DolphinBle::parse_robot_text_frame_(const std::vector<uint8_t> &frame) {
     return;
   }
   if (dest == 0xFFFD && opcode == 0x02) {
-    if (payload_len >= 80) {
+    if (this->protocol_debug_logging_ && payload_len >= 80) {
       ESP_LOGI(TAG, "SM payload bytes 55-75: %s", this->format_hex_(payload + 55, 20).c_str());
     }
     this->publish_sm_data_from_frame_(frame);
@@ -1418,7 +1442,7 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
       this->schedule_trigger_by_ = payload[213 + D];
     }
 
-    if (payload_len >= 237) {
+    if (this->protocol_debug_logging_ && payload_len >= 237) {
       ESP_LOGI(TAG, "SM payload bytes 210-240: %s", this->format_hex_(payload + 210, 30).c_str());
     }
 
@@ -1456,17 +1480,25 @@ void DolphinBleButton::press_action() {
   }
 }
 
-void DolphinBle::press_start_cleaning() { this->send_command_frame_(0x06, 0xFFF8, {}, "start_up_dolphin"); }
+void DolphinBle::press_start_cleaning() {
+  this->send_command_frame_(0x06, 0xFFF8, {}, "start_up_dolphin", false);
+  this->request_status_burst_();
+}
 
-void DolphinBle::press_stop_cleaning() { this->send_command_frame_(0x05, 0xFFF8, {}, "shutdown_dolphin"); }
+void DolphinBle::press_stop_cleaning() {
+  this->send_command_frame_(0x05, 0xFFF8, {}, "shutdown_dolphin", false);
+  this->request_status_burst_();
+}
 
 void DolphinBle::press_reset_filter() {
   this->send_command_frame_(0x0a, 0xFFF7, {}, "reset_filter_indicator", false);
+  this->request_status_burst_();
 }
 
 void DolphinBle::press_pickup_mode() {
   this->publish_current_cleaning_mode_(0x0b);
   this->send_command_frame_(0x03, 0xFFE9, {0x0b}, "start_pickup_mode");
+  this->request_status_burst_();
 }
 
 void DolphinBle::press_quit_manual_drive() {
@@ -1479,6 +1511,7 @@ void DolphinBle::press_refresh_status() {
   const uint8_t mu_payload[] = {0x01, 0x00, 0xff};
   this->queue_command_frame_(0x01, 0xFFFD, mu_payload, sizeof(mu_payload), "get_mu_data", true);
   this->queue_command_frame_(0x07, 0xFFF8, nullptr, 0, "system_status", true);
+  this->request_status_burst_();
 }
 
 void DolphinBle::set_cleaning_mode_option(const std::string &option) {
@@ -1489,6 +1522,7 @@ void DolphinBle::set_cleaning_mode_option(const std::string &option) {
   this->publish_configured_cycle_duration_();
   this->publish_cycle_time_remaining_();
   this->send_command_frame_(0x03, 0xFFE9, {mode}, "set_cleaning_mode");
+  this->request_status_burst_();
 }
 
 void DolphinBle::set_manual_drive_direction_option(const std::string &option) {
@@ -1504,6 +1538,7 @@ void DolphinBle::set_manual_drive_direction_option(const std::string &option) {
     uint8_t speed = static_cast<uint8_t>(std::clamp(this->selected_manual_drive_speed_, 0.0f, 100.0f));
     ESP_LOGI(TAG, "Steering robot direction=%s speed=%d", option.c_str(), speed);
     this->send_command_frame_(0x03, 0xFFF7, {direction, speed}, "manual_drive", false);
+    this->request_status_burst_();
   }
 }
 
@@ -1515,6 +1550,7 @@ void DolphinBle::set_manual_drive_speed(float speed) {
     ESP_LOGI(TAG, "Updating steering speed direction=%s speed=%d",
              direction_to_string_(direction).c_str(), speed_byte);
     this->send_command_frame_(0x03, 0xFFF7, {direction, speed_byte}, "manual_drive", false);
+    this->request_status_burst_();
   }
 }
 
@@ -1574,6 +1610,7 @@ void DolphinBle::write_led_state(light::LightState *state) {
   // Send the command
   uint8_t enabled_byte = enabled ? 0x01 : 0x00;
   this->send_command_frame_(0x10, 0xFFF7, {enabled_byte, intensity, mode}, "led_control", false);
+  this->request_status_burst_();
 }
 
 void DolphinBle::set_weekly_repeat_state(bool state) {
@@ -1581,6 +1618,13 @@ void DolphinBle::set_weekly_repeat_state(bool state) {
     return;
   this->schedule_repeat_ = state;
   this->send_weekly_schedule_();
+}
+
+void DolphinBle::set_protocol_debug_logging_state(bool state) {
+  this->protocol_debug_logging_ = state;
+  if (this->protocol_debug_switch_ != nullptr)
+    this->protocol_debug_switch_->publish_state(state);
+  ESP_LOGI(TAG, "Verbose protocol logging %s", state ? "enabled" : "disabled");
 }
 
 void DolphinBle::set_day_time_option(uint8_t day, const std::string &value) {
@@ -1699,7 +1743,11 @@ void DolphinBle::parse_weekly_timer_response_(const std::vector<uint8_t> &frame)
 
 void DolphinBleSwitch::write_state(bool state) {
   if (this->parent_ != nullptr) {
-    this->parent_->set_weekly_repeat_state(state);
+    if (this->kind_ == 0) {
+      this->parent_->set_weekly_repeat_state(state);
+    } else if (this->kind_ == 1) {
+      this->parent_->set_protocol_debug_logging_state(state);
+    }
   }
   this->publish_state(state);
 }

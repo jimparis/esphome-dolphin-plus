@@ -10,6 +10,7 @@ Current status of the ESPHome Maytronics Dolphin BLE integration.
 - The cleaning-mode select no longer emits the ESPHome `Invalid option none` warning.
 - Cleaning mode is exposed as a single select entity. Telemetry updates its current state and user changes send the corresponding mode command.
 - Cycle duration is derived from the local `SM/62/1` cleaning-duration table, and cycle time remaining is derived from active-cycle start time plus that duration.
+- Verbose protocol logging is runtime-controlled by the `Protocol Debug Logging` switch. Normal operation suppresses repetitive poll queue/send/ACK/frame logs.
 - The custom LED light supports on/off, brightness from 0-100%, and the `Blinking`, `Constant`, and `Disco` effects.
 - Status, SM, and MU requests are coordinated by the C++ component. Temperature polling remains disabled pending a valid, non-disruptive response from this unit.
 
@@ -74,6 +75,8 @@ The PWS advertises in-water support, but its temperature request has not yielded
 Live matrix testing with the official app and ESPHome verified that data byte 155 is the active packed LED byte (e.g. `0xA2` for Constant, `0xA3` for Disco, `0x42` for 40% Constant), while bytes 156 and 157 remain `0xFF`. 
 
 Although the PWS processes LED control writes (`FFF7/10`) and manual drive writes (`FFF7/03`), it does not return a clean ACK response on this unit (often causing link-layer BLE aborts/short-ACL warnings). To prevent command queue blockage, these `FFF7` commands are now treated as write-only (`expects_response = false`) and popped immediately after transmission, resolving the 4-second command queue timeouts. The integration now defaults `mu_led_data_offset` to `155`.
+
+Start and stop cleaning commands are also treated as write-only on the reference unit: they can take effect physically without producing the expected clean response frame. After control writes, the component temporarily polls status every second for 60 seconds so Home Assistant sees robot-state and cycle-timing transitions sooner.
 
 ## Future Work
 

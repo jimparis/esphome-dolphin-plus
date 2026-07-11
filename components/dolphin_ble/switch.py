@@ -10,6 +10,7 @@ CONF_KIND = "kind"
 
 KINDS = {
     "weekly_repeat": 0,
+    "protocol_debug_logging": 1,
 }
 
 dolphin_ble_ns = cg.esphome_ns.namespace("dolphin_ble")
@@ -27,4 +28,7 @@ async def to_code(config):
     parent = await cg.get_variable(config[CONF_DOLPHIN_BLE_ID])
     kind = KINDS[config[CONF_KIND]]
     var = await switch.new_switch(config, parent, kind)
-    cg.add(parent.set_weekly_repeat_switch(var))
+    if kind == 0:
+        cg.add(parent.set_weekly_repeat_switch(var))
+    else:
+        cg.add(parent.set_protocol_debug_switch(var))
