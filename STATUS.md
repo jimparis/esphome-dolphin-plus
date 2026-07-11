@@ -11,6 +11,7 @@ Current status of the ESPHome Maytronics Dolphin BLE integration.
 - Cleaning mode is exposed as a single select entity. Telemetry updates its current state and user changes send the corresponding mode command.
 - Cycle duration is derived from the local `SM/62/1` cleaning-duration table, and cycle time remaining is derived from active-cycle start time plus that duration.
 - Verbose protocol logging is runtime-controlled by the `Protocol Debug Logging` switch. Normal operation suppresses repetitive poll queue/send/ACK/frame logs.
+- BLE advertisement relay is enabled with passive scanning and without Home Assistant active GATT proxy connections.
 - The custom LED light supports on/off, brightness from 0-100%, and the `Blinking`, `Constant`, and `Disco` effects.
 - Status, SM, and MU requests are coordinated by the C++ component. Temperature polling remains disabled pending a valid, non-disruptive response from this unit.
 
@@ -77,6 +78,8 @@ Live matrix testing with the official app and ESPHome verified that data byte 15
 Although the PWS processes LED control writes (`FFF7/10`) and manual drive writes (`FFF7/03`), it does not return a clean ACK response on this unit (often causing link-layer BLE aborts/short-ACL warnings). To prevent command queue blockage, these `FFF7` commands are now treated as write-only (`expects_response = false`) and popped immediately after transmission, resolving the 4-second command queue timeouts. The integration now defaults `mu_led_data_offset` to `155`.
 
 Start and stop cleaning commands are also treated as write-only on the reference unit: they can take effect physically without producing the expected clean response frame. After control writes, the component queues an immediate `system_status` refresh and then continues the normal 2-second status polling cadence.
+
+Timezone and RTC sync writes are also treated as write-only. The reference unit applies them without returning a clean response frame, so waiting for ACKs only delays initialization.
 
 ## Future Work
 

@@ -30,6 +30,18 @@ ota:
 esp32_ble:
   io_capability: none
 
+# Relay BLE advertisements to Home Assistant without asking devices for scan-response data.
+# If an advertisement-only device is missing fields, try setting this active scan flag to true
+# before enabling active GATT proxying below.
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+
+bluetooth_proxy:
+  # Keep outbound Home Assistant GATT connections off this node so they do not
+  # compete with the Dolphin BLE session. Advertisement relay still works.
+  active: false
+
 external_components:
   - source:
       type: local

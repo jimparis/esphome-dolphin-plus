@@ -379,7 +379,7 @@ void DolphinBle::send_timezone_() {
   int16_t offset_minutes = static_cast<int16_t>(ESPTime::timezone_offset() / 60);
   uint16_t encoded = static_cast<uint16_t>(offset_minutes);
   uint8_t payload[] = {static_cast<uint8_t>(encoded >> 8), static_cast<uint8_t>(encoded & 0xff)};
-  this->send_command_frame_(0xc2, 0xFFFE, payload, sizeof(payload), "timezone");
+  this->send_command_frame_(0xc2, 0xFFFE, payload, sizeof(payload), "timezone", false);
 }
 
 void DolphinBle::send_rtc_time_() {
@@ -396,7 +396,7 @@ void DolphinBle::send_rtc_time_() {
   payload[2] = static_cast<uint8_t>((timestamp >> 8) & 0xFF);
   payload[3] = static_cast<uint8_t>(timestamp & 0xFF);
 
-  this->send_command_frame_(0x09, 0xFFF9, payload, 4, "RealTimeClock");
+  this->send_command_frame_(0x09, 0xFFF9, payload, 4, "RealTimeClock", false);
 }
 
 bool DolphinBle::send_local_notification_text_(const std::string &text) {
@@ -487,7 +487,7 @@ void DolphinBle::handle_command_queue_() {
     ESP_LOGI(TAG, "Sending command %s opcode=0x%02x dest=0x%04x attempt=%u text=\"%s\"",
              pending.name.c_str(), pending.opcode, pending.destination, pending.attempts,
              pending.text.c_str());
-  } else if (pending.name != "system_status") {
+  } else if (pending.name != "system_status" && pending.name != "get_mu_data") {
     ESP_LOGD(TAG, "Sending command %s opcode=0x%02x dest=0x%04x attempt=%u",
              pending.name.c_str(), pending.opcode, pending.destination, pending.attempts);
   }
@@ -1332,9 +1332,11 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
       led_effect = "Constant";
     }
 
-    ESP_LOGD(TAG, "Telemetry LED packed byte data[%u]/raw[%u]=0x%02X enabled=%d intensity=%u mode=%s",
-             this->mu_led_data_offset_, static_cast<unsigned>(led_raw_offset), led_packed, led_on,
-             led_intensity, led_effect.c_str());
+    if (this->protocol_debug_logging_) {
+      ESP_LOGD(TAG, "Telemetry LED packed byte data[%u]/raw[%u]=0x%02X enabled=%d intensity=%u mode=%s",
+               this->mu_led_data_offset_, static_cast<unsigned>(led_raw_offset), led_packed, led_on,
+               led_intensity, led_effect.c_str());
+    }
     if (this->led_light_ != nullptr) {
       this->is_telemetry_sync_ = true;
       auto call = this->led_light_->make_call();
