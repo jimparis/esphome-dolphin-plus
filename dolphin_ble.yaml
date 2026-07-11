@@ -40,6 +40,9 @@ dolphin_ble:
   mac_address: !secret dolphin_mac
   name_filter: !secret dolphin_name_filter
   time_id: sntp_time
+  # These details are profile-specific and may differ across robot models or firmware.
+  temperature_supported: false
+  mu_led_data_offset: 157
 
 time:
   - platform: sntp

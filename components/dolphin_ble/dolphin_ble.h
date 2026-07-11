@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <array>
+#include <deque>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -41,6 +42,8 @@ class DolphinBle : public Component {
   void set_mac_address(const std::string &mac) { this->mac_address_ = mac; }
   void set_name_filter(const std::string &name) { this->name_filter_ = name; }
   void set_time_id(time::RealTimeClock *time_id) { this->time_id_ = time_id; }
+  void set_temperature_supported(bool supported) { this->temperature_supported_ = supported; }
+  void set_mu_led_data_offset(uint16_t offset) { this->mu_led_data_offset_ = offset; }
 
   void set_numeric_sensor(uint8_t kind, sensor::Sensor *sensor);
   void set_text_sensor(uint8_t kind, text_sensor::TextSensor *sensor);
@@ -116,12 +119,18 @@ class DolphinBle : public Component {
   void discover_remote_characteristic_();
   void enable_remote_notifications_();
   void handle_polling_();
+  void handle_command_queue_();
+  void queue_initialization_();
+  void send_timezone_();
   void send_rtc_time_();
-  void send_local_notification_text_(const std::string &text);
+  bool send_local_notification_text_(const std::string &text);
   void send_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
                            size_t payload_len, const char *name);
   void send_command_frame_(uint8_t opcode, uint16_t destination, std::initializer_list<uint8_t> payload,
                            const char *name);
+  void queue_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
+                            size_t payload_len, const char *name, bool deduplicate);
+  void handle_command_response_(uint16_t destination, uint8_t opcode);
   void handle_robot_notification_(const uint8_t *data, size_t len);
   void process_robot_notification_(const uint8_t *data, size_t len);
   void maybe_log_complete_text_frame_();
@@ -179,6 +188,8 @@ class DolphinBle : public Component {
   bool mtu_done_{false};
   bool in_water_capability_known_{false};
   bool in_water_capable_{false};
+  bool temperature_supported_{false};
+  uint16_t mu_led_data_offset_{157};
 
   esp_gatt_if_t gatts_if_{ESP_GATT_IF_NONE};
   esp_gatt_if_t gattc_if_{ESP_GATT_IF_NONE};
@@ -195,8 +206,16 @@ class DolphinBle : public Component {
   uint16_t remote_char_handle_{0};
   uint16_t remote_cccd_handle_{0};
 
-  uint8_t metadata_step_{0};
-  uint32_t last_metadata_poll_{0};
+  struct PendingCommand {
+    uint8_t opcode;
+    uint16_t destination;
+    std::string name;
+    std::string text;
+    uint8_t attempts{0};
+    uint32_t sent_at{0};
+  };
+  std::deque<PendingCommand> command_queue_;
+  bool initialization_queued_{false};
   uint32_t last_status_poll_{0};
   uint32_t last_mu_poll_{0};
   uint32_t last_temp_poll_{0};
@@ -213,8 +232,11 @@ class DolphinBle : public Component {
   select::Select *cleaning_mode_select_{nullptr};
   select::Select *manual_drive_direction_select_{nullptr};
   uint8_t selected_cleaning_mode_{1};
-  std::array<uint16_t, 11> configured_cycle_times_mins_{};
-  bool configured_cycle_times_known_{false};
+  // SM/62/1 robot_properties.cleaning_modes, indexed by modes 1 through 11.
+  std::array<uint16_t, 11> configured_cycle_times_mins_{{120, 60, 120, 120, 120, 120,
+                                                         120, 120, 600, 120, 5}};
+  uint16_t stairs_cycle_time_mins_{120};
+  bool configured_cycle_times_known_{true};
   uint8_t selected_manual_drive_direction_{1};
   float selected_manual_drive_speed_{50.0f};
   light::LightState *led_light_{nullptr};

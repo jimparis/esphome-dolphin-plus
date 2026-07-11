@@ -2,6 +2,8 @@
 
 This document describes the Bluetooth Low Energy (BLE) protocol used by the Maytronics Dolphin Plus robot power supply, including packet formats, commands, responses, and observed device behavior.
 
+Protocol fields can vary by robot model and firmware. Robot-specific SM and MU mapping schemas define the active field offsets, so captures from one power supply should not be generalized to every product profile.
+
 There are two protocol families:
 1. **IOT Protocol Family**: Used by modern Dolphin Plus power supplies (including the unit advertiser name `Z4868YMR`). This is the primary protocol.
 2. **UART/POP Protocol Family**: A secondary protocol used by older or alternative controller variants.
@@ -17,7 +19,7 @@ Connecting to a Maytronics Dolphin Plus power supply over BLE requires a specifi
 To establish a functional session with the IOT protocol:
 1. **GATT Server Setup (Host side)**:
    - Start a local GATT server on the connecting device (e.g. ESP32).
-   - Advertise/expose the service: `fd5abba0-3935-11e5-85a6-0002a5d5c51b`.
+   - Expose the service: `fd5abba0-3935-11e5-85a6-0002a5d5c51b`. Advertising the host-side service is not required for the observed IOT connection flow.
    - Add a local notify characteristic: `fd5abba1-3935-11e5-85a6-0002a5d5c51b` (with Notify properties).
    - Add a Client Characteristic Configuration Descriptor (CCCD) `00002902-0000-1000-8000-00805f9b34fb`.
 2. **Connect to Robot (Client side)**:
@@ -28,15 +30,32 @@ To establish a functional session with the IOT protocol:
    - Discover services on the robot.
    - Locate the remote service `fd5abba0-3935-11e5-85a6-0002a5d5c51b` and characteristic `fd5abba1-3935-11e5-85a6-0002a5d5c51b`.
    - Enable notifications on the robot's remote characteristic by writing `01 00` to its remote CCCD.
-   - The robot will simultaneously connect back to the host's local GATT Server and write `01 00` to the host's local CCCD to subscribe to outbound commands.
+   - The robot also appears as a connected peer on the host's GATT-server side. Outbound commands are delivered by notifying the host's local characteristic. This is the reverse of the usual BLE-UART arrangement; commands are not written to the robot's remote characteristic.
 4. **Session Readiness**:
-   - The connection is fully active once both notify subscriptions are acknowledged and MTU negotiation is successful.
+   - After writing the robot's remote CCCD, request an MTU of `512` and wait for successful negotiation.
+   - Also ensure that a GATT-server peer is present and able to receive notifications before sending commands.
 
 ### Keep-Alive & Status Polling
 To track status optimally and ensure the connection doesn't time out, the host should:
 - Periodically poll the `system_status` command.
 - If features indicate support, optionally poll the `temperature` command.
-- Handle notification fragment reassembly. Responses are sent as ASCII hex strings prefixed with `:` and terminated by a newline/null byte. Because long payloads (like 256-byte MU/SM dumps) exceed single packet sizes, they are sent as fragmented notifications. The host must buffer and concatenate these fragments until the total payload matches the parsed `data_length` field + envelope overhead, then validate the checksum.
+- Handle notification fragment reassembly. Responses are ASCII hex strings containing one colon before the frame. Because long payloads such as MU/SM dumps exceed a single notification, concatenate notification text until the frame's `data_length` is present. A newline or NUL terminator is not required.
+- Validate the checksum before accepting a frame, then match responses by destination and opcode.
+
+### Initialization queue
+
+IOT requests are serialized through a single-command queue. The initialization order is:
+
+1. `timezone` (`FFFE/c2`)
+2. `real_time_clock` (`FFF9/09`)
+3. `get_sm_data` (`FFFD/02`)
+4. `get_mu_data` (`FFFD/01`)
+5. `system_status` (`FFF8/07`)
+6. `pws_features` (`FFFA/1a`)
+7. `cloud_connection_status` (`FFFE/df`)
+8. `temperature` (`FFF8/09`), subject to the separate product-feature gate described below
+
+Normal IOT requests use a two-second timeout and two send/parse attempts. When the request queue is empty, unsolicited status, temperature, and Wi-Fi-list frames are dispatched by destination/opcode. Implementations may continue dispatching a valid non-matching frame while a request is in flight, but it must not complete the in-flight request.
 
 ---
 
@@ -45,8 +64,10 @@ To track status optimally and ensure the connection doesn't time out, the host s
 The IOT protocol wraps command frames in an ASCII text-based envelope. 
 
 ### ASCII Envelope
-- **Outbound (Host to Robot)**: Formatted as ASCII string `03:<lowercase_frame_hex>` (e.g. `03:ab03fff806000002ab`).
-- **Inbound (Robot to Host)**: Received as notifications formatted as `:<lowercase_frame_hex>`. Long packets are split across multiple notifications and must be reassembled.
+- **Named outbound envelope**: Formatted as `<command_key>:<lowercase_frame_hex>`, for example `start_up_dolphin:ab03fff806000002ab` or `system_status:ab03fff807000002ac`. The text before the colon is a command name; it is not the low-level frame's `SRC` byte.
+- **Outbound (observed target / this project)**: The target power supply also accepts `03:<lowercase_frame_hex>` (for example `03:ab03fff806000002ab`), which is what the ESPHome component currently sends.
+- **Inbound**: Discard the prefix before the colon and parse the suffix as frame hex. Captures from this unit commonly use an empty prefix (`:<lowercase_frame_hex>`).
+- Long packets are split across multiple notifications and must be reassembled before parsing.
 
 ### Low-Level Frame Layout
 The hexadecimal payload inside the envelope has the following layout:
@@ -61,6 +82,27 @@ The hexadecimal payload inside the envelope has the following layout:
 | **7 ... (N-3)** | Payload Data | Variable | Command parameters or payload bytes. |
 | **(N-2) - (N-1)** | Checksum | 2 | Big-Endian sum of every preceding byte in the frame (excluding the checksum field itself). |
 
+### Response ACK and length convention
+
+Every known IOT response begins its frame payload with a one-byte acknowledgement/status code. The frame's `data_length` includes this ACK byte. Schema offsets are applied after removing it, so:
+
+- raw response payload byte `0` is the ACK;
+- data byte `0` is raw response payload byte `1`;
+- the `system_status` declared response length of 53 means one ACK plus 52 data bytes;
+- the `temperature` declared response length of 10 means one ACK plus 9 data bytes.
+
+The ACK meaning depends on the destination:
+
+| Destination | Known status codes |
+| :--- | :--- |
+| `FFFD` | `00` success; `01` RC CRC error; `02` UART robot send error; `03` packet sent too soon; `04` invalid command; `05` robot ACK timeout; `06` robot bad checksum |
+| `FFF9` | `00` success; `01` CRC error; `03` packet sent too soon; `04` invalid command; `05` robot ACK timeout; `08` robot no ACK 2; `09` robot bad checksum 2; `0A` wait; `0B` flash write failed; `0C` invalid data; `50` robot ACK; `51` robot NACK |
+| `FFFA` | `00` success; `02` wrong parameter; `03` error; `04` flash error; `05` timeout |
+| `FFF8`, `FFE9` | `00` success only |
+| `FFF7` | `00` success; `01` CRC error; `02` invalid instruction; `08` ACK timeout; `D7` filter status |
+| `FFFE` | `00` success; `01` RC CRC error; `02` no Wi-Fi signal; `03` cannot connect to network; `04` cannot connect to cloud; `07` PWS IP-address error |
+| `FFFF` | `00` success; `02` wrong parameter; `03` error |
+
 ---
 
 ## 3. Protocol State Definitions (Enums)
@@ -70,14 +112,13 @@ Represents the state of the PWS (Power Supply).
 
 | Value | State Name | Description |
 | :---: | :--- | :--- |
-| **0** | `on` | Power supply is on / active. |
+| **0** | `off` | Power supply is off / standby. |
 | **1** | `on` | Power supply is turned on. |
 | **2** | `holdWeekly` | Weekly program is set and waiting. |
 | **3** | `holdDelay` | Start delay timer is active. |
 | **4** | `programming` | Controller is in programming mode. |
 | **5** | `onCleanMode` | Currently executing a cleaning cycle. |
 | **6** | `sleep` | Power supply is in sleep / standby mode. |
-| **7** | `off` | Power supply is off / standby. |
 | **-1 / Other**| `Unknown` | Unknown state. |
 
 ### Robot State (`mu_state` / `RobotState`)
@@ -90,8 +131,8 @@ Represents the state of the MU (Motor Unit / Robot).
 | **2** | `scanning` | Scanning / Cleaning. |
 | **3** | `recovery` | Moving to pool side for retrieval / pickup. |
 | **4** | `finished` | Cleaning cycle completed successfully. |
-| **5** | `programming` | Programming mode. |
-| **6** | `fault` | Fault detected. Error code is active. |
+| **5** | `fault` | Fault detected. Error code is active. |
+| **6** | `programming` | Programming mode. |
 | **7** | `notConnected` | Communication between PWS and Robot is lost. |
 | **-1 / Other**| `Unknown` | Unknown state. |
 
@@ -111,6 +152,7 @@ Represents the chosen cleaning program.
 | **9** | `TicTac` | tictac | Specialized movement program. |
 | **10** | `Custom` | custom | User-customized parameters. |
 | **11** | `PickUp` | pickup | Navigates to pool side and climbs wall for retrieval. |
+| **15** | `Stairs` | stairs | Stair-cleaning mode used by models that advertise it. |
 | **-2** | `Empty` | empty | No program set. |
 | **-1 / Other**| `Unknown` | unknown | Unrecognized mode. |
 
@@ -217,13 +259,15 @@ Configures the schedule for Monday through Sunday.
 - **Payload**: 37 bytes:
   - Byte 0: Repeat Schedule (`00` = Repeat weekly, `01` = Run once and disable)
   - Byte 1: Trigger Source (integer)
-  - Bytes 2 - 36: 7 blocks of 5 bytes (one for each day Monday to Sunday). Each block is structured as:
+  - Bytes 2 - 36: 7 blocks of 5 bytes. Consumers must use the day ID rather than assume array order; wire order is day IDs `2,3,4,5,6,7,1`. Each block is structured as:
     - Byte 0: Day Index / ID (`1` to `7`)
     - Byte 1: Enabled (`01` = Active, `00` = Off)
     - Byte 2: Hour (0-23)
     - Byte 3: Minute (0-59)
     - Byte 4: Cleaning Mode (`CleanMode` value)
 - **Envelope Command**: `03:ab03fff9450025[repeat][trigger][7x5_daily_blocks][checksum]`
+
+`SM/62/1` contains an inconsistent `request_length: 25` declaration for this command. Its field map defines one repeat byte, one trigger byte, and 35 bytes of day operations, and the mapped serializer consequently builds 37 bytes (`0x25`). Treat the decimal 25 metadata value as erroneous; the frame length field and actual payload must be 37 bytes.
 
 ### Set Single Day Weekly Program
 Configures the schedule for a single day of the week.
@@ -232,12 +276,19 @@ Configures the schedule for a single day of the week.
 - **Payload**: 7 bytes:
   - Byte 0: Repeat Schedule (`00` = Repeat weekly, `01` = Run once and disable)
   - Byte 1: Trigger Source (integer)
-  - Byte 2: Day Index / ID (`1` to `7`, representing Monday to Sunday)
+  - Byte 2: Day Index / ID (`1` = Sunday through `7` = Saturday)
   - Byte 3: Enabled (`01` = Active, `00` = Off)
   - Byte 4: Hour (0-23, or -1/`FF` if disabled)
   - Byte 5: Minute (0-59, or -1/`FF` if disabled)
   - Byte 6: Cleaning Mode (`CleanMode` value)
 - **Envelope Command**: `03:ab03fff9470007[repeat][trigger][day][enabled][hour][minute][mode][checksum]`
+
+### Set timezone and real-time clock
+
+- **Timezone (`timezone`)**: opcode `c2`, destination `FFFE`, payload is a signed 16-bit big-endian UTC offset in minutes.
+- **Real-time clock (`real_time_clock`)**: opcode `09`, destination `FFF9`, payload is the current Unix timestamp in seconds as an unsigned 32-bit big-endian value.
+
+Both are sent during initialization. These share opcodes with other commands but use different destinations, so dispatch must match the destination/opcode pair rather than opcode alone.
 
 ---
 
@@ -254,10 +305,13 @@ Used to specify the network security type during Wi-Fi setup.
 - **`3`**: `WEP`
 - **`4`**: `WPA_WPA2_Enterprise`
 
-### Request Scan Results (Get WiFi List)
-Triggers a local AP scan by the robot and returns discovered networks.
-- **Opcode**: `c6`
-- **Destination**: `FFFE`
+### Scan for and receive Wi-Fi networks
+
+Scanning is a two-command exchange, not a request/response using one opcode:
+
+- **Trigger scan (`get_nearby_wifi_networks`)**: opcode `c4`, destination `FFFE`, no request data. Its direct response is an ACK.
+- **Results (`wifi_networks_list`)**: opcode `c6`, destination `FFFE`. This is subsequently received as a response/unsolicited frame and is dispatched by destination/opcode.
+
 - **Response Stride Format**: contiguous sequence of variable-length network blocks:
   - Byte 0: `N` (SSID string length)
   - Bytes 1 to N: `SSID` (ASCII string, e.g. empty for hidden networks)
@@ -280,14 +334,19 @@ Configures SSID credentials and password.
 
 ### Query Connection Status Diagnostics
 Checks status and reports troubleshooting errors during Wi-Fi/Cloud association.
-- **Opcode**: `de`
-- **Destination**: `FFFE`
-- **Response**: The PWS responds with an acknowledgment text frame. If connection fails, the string payload indicates the failure category:
-  - `"rc_crc_error"` or `"cant_connect_to_network"`: Incorrect password (`INCORRECT_WIFI_PASSWORD`).
-  - `"no_wifi_signal"`: Router out of range or turned off (`NO_WIFI_SIGNAL`).
-  - `"pws_ip_address"`: IP addressing conflict or DHCP failure (`WRONG_IP_ADDRESS`).
-  - `"cant_connect_to_cloud"`: Associated with Wi-Fi router but cannot establish a TLS connection to Maytronics AWS servers (`WIFI_NOT_CONNECTED` / `CANT_CONNECT_TO_CLOUD`).
-  - No error string / generic ACK: Connected successfully (`CONNECTED`).
+
+There are two status commands:
+
+- **Network status (`network_connection_status`)**: opcode `de`, destination `FFFE`, no request data.
+- **Cloud status (`cloud_connection_status`)**: opcode `df`, destination `FFFE`, no request data. It is also part of the initialization sequence.
+
+Failures are not returned as literal strings on the wire. The first response payload byte is the numeric `FFFE` ACK code, mapped through the ACK table to names:
+
+- `00`: connected/success.
+- `01` (`rc_crc_error`) or `03` (`cant_connect_to_network`): incorrect password or association failure, depending on the implementation.
+- `02` (`no_wifi_signal`): router out of range or turned off.
+- `04` (`cant_connect_to_cloud`): associated to Wi-Fi but unable to connect to the Maytronics cloud.
+- `07` (`pws_ip_address`): IP addressing/DHCP failure.
 
 ---
 
@@ -295,21 +354,35 @@ Checks status and reports troubleshooting errors during Wi-Fi/Cloud association.
 
 Device parameters, diagnostics, and sensors are requested as structured blocks.
 
+### Reference-unit protocol profile
+
+The reference power supply is assigned SM profile `SM/62/1`, MU profile `MU/S/1`, and product-feature package `PKF0111`. The corresponding public mapping files are:
+
+- `Android_users/SM/62/1.json`
+- `Android_users/MU/S/1.json`
+
+Package `PKF0111` enables regular and quick weekly scheduling, regular manual drive, regular LED settings, the every-second-day quick-button mode, history, settings, and support. It does not contain feature `30` (temperature) or feature `40` (in/out water), confirming that periodic temperature polling must remain disabled for this unit even though the compact PWS bitfield advertises `inWat`.
+
+The SM profile supplies cleaning-duration properties of 120 minutes for regular, cove, floor, waterline, ultra, spot, wall, custom, and stairs; 60 minutes for short; 600 minutes for TicTac; and 5 minutes for pickup. These profile properties are more reliable for UI estimates than interpreting the unused `system_status.cleaning_modes` bytes.
+
 ### Power Supply Features (`pws_features`)
 - **Opcode**: `1a`, **Destination**: `FFFA`, **Request Payload**: None
 - **Envelope Request**: `03:ab03fffa1a000002c1`
-- **Response Layout (3 Bytes payload data)**:
-  Parsed as a reversed bit string from the payload hex array. For a standard 3-byte payload, the feature bits are mapped on the last byte `payload[2]`:
-  - **Bit 0**: `networkSensing` (Wi-Fi connectivity support).
-  - **Bit 1**: `inWat` (In-Water sensor / capability).
-  - **Bit 2**: `cellular` (Cellular modem support).
-  - **Bit 3**: `OTA` (Over-the-Air update support).
-  - **Bit 4**: `PSC` (PCS support).
+- **Response Layout (3-byte frame payload total)**:
+  - Raw response payload byte 0 is the ACK.
+  - Remove the ACK, treat the remaining two bytes as one big-endian bit field, and map its five least-significant bits. Equivalently, the feature flags are in raw response payload byte 2 (post-ACK data byte 1):
+    - **Bit 0**: `networkSensing` (Wi-Fi connectivity support).
+    - **Bit 1**: `inWat` (In-Water sensor / capability).
+    - **Bit 2**: `cellular` (Cellular modem support).
+    - **Bit 3**: `OTA` (Over-the-Air update support).
+    - **Bit 4**: `PSC` (PCS support).
+
+The `inWat` bit is not sufficient to decide whether to issue the `temperature` command. Command availability is separately gated by product-feature IDs `30` (temperature) or `40` (in/out water). The compact bit is useful evidence of hardware capability, but does not prove that the temperature command is supported.
 
 ### PWS Configuration Block (`get_sm_data`)
 - **Opcode**: `02`, **Destination**: `FFFD`, **Request Payload**: `02 00 ff`
 - **Envelope Request**: `03:ab03fffd0200030200ff03b0`
-- **Response Layout (256 Bytes parsed dynamically)**:
+- **Response Layout (declared 256-byte frame payload, including ACK)**:
   - The first raw response-payload byte is an ACK; the offsets below refer to the remaining data bytes. In raw ESPHome frames, add 1 to every offset below.
   - **Bytes 38 - 41**: PWS Software Version.
     - Byte 38: Major version (as unsigned int).
@@ -351,7 +424,7 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
 ### Motor Unit Status Block (`get_mu_data`)
 - **Opcode**: `01`, **Destination**: `FFFD`, **Request Payload**: `01 00 ff`
 - **Envelope Request**: `03:ab03fffd0100030100ff03ae`
-- **Response Layout (256 Bytes parsed dynamically)**:
+- **Response Layout (declared 256-byte frame payload, including ACK)**:
   - The first raw response-payload byte is an ACK; the offsets below refer to the remaining data bytes. In raw ESPHome frames, add 1 to every offset below.
   - **Bytes 0 - 119**: Fault History Records. Contains 10 historical fault blocks of 12 bytes each, ordered chronologically (newest first if flipped):
     - Byte 0: Fault Error Code.
@@ -370,9 +443,15 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
   - **Byte 145**: Impeller Runtime Minutes (1 byte).
   - **Bytes 146 - 147**: Turn-On Counter (2-byte Little-Endian Short).
   - **Bytes 148 - 149**: Not Completed Cycle Counter (2-byte Little-Endian Short).
-  - **Byte 152**: Robot Software Version Major.
-  - **Bytes 153 - 154**: Robot Software Version Minor.
-  - **Byte 155**: Packed active LED configuration: bits 3-7 are intensity in 5% increments; bit 0 is Disco; bit 1 is Constant; neither mode bit is Blinking. The LED is enabled when decoded intensity is nonzero.
+  - **Byte 151**: Hardware version.
+  - **Bytes 168 - 169**: `MU/S/1` defines these as the minor/software-version field and also as the program checksum. No separate major-version field exists in this profile. Treat the two bytes as a little-endian value rendered as four hexadecimal digits.
+  - **Bytes 155, 156, 157**: named red, green, and blue fields in `MU/S/1`.
+  - **Declared `leds` byte**: `MU/S/1` assigns `leds.start = 157`, overlapping its `led_3_blue` field.
+  - **Adjacent valid-looking value**: data byte 155/raw response payload byte 156 was observed as `0xA2`, which decodes as 100% Constant and agreed with the physical solid-blue light. This proves that byte 155 can contain a compatible packed value, but it does not prove that the declared byte 157 is wrong. The test that introduced byte 155 also replaced an incorrect enum-style decoder with the packed-bit decoder, so it did not isolate the offset change.
+  - A controller using this profile reads byte 157 during full-data initialization, and the reference controller reports the correct LED configuration when first opened before any write. This is strong behavioral confirmation of the declared byte 157. The most likely interpretation is that the adjacent red/green/blue fields can contain replicated or channel-related values, with the packed `leds` field intentionally using the blue byte. Capture all three bytes through controlled state changes before assigning stronger semantics to bytes 155 and 156.
+  - LED writes do not read or validate an MU byte: `set_robot_leds` (`FFF7/10`) sends enabled, intensity, and mode as a three-byte request and has no response data. After a successful ACK, the requested value is merged directly into local state. This explains the immediate post-write display, but the correct pre-write cold-start display is the evidence that byte 157 also works.
+  - The ESPHome component exposes `mu_led_data_offset` for profiles that genuinely differ, but defaults to the `MU/S/1` declaration of data byte 157.
+  - The packed value uses bits 3-7 for intensity in 5% increments, bit 0 for Disco, and bit 1 for Constant; neither mode bit means Blinking. The LED is enabled when decoded intensity is nonzero.
   - **Byte 167**: Current Clean Mode.
   - **Byte 170**: Wall climbing period config.
 
@@ -394,33 +473,32 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
     - Byte 15: Cleaning Mode.
     - Bytes 16-17: Delay/Time to next run in minutes (2-byte Short).
   - **Raw bytes 19 - 30** (data bytes 18 - 29): Currently active fault/error blocks (12 bytes).
+    - Data byte 18: fault code.
+    - Data bytes 19-20: PCB hours (big-endian).
+    - Data byte 21: PCB minutes.
+    - Data bytes 22-23: cycle counter (big-endian).
+    - Data bytes 24-25, 26-27, and 28-29: three diagnostic values (big-endian).
   - **Raw bytes 31 - 52** (data bytes 30 - 51): Cleaning modes estimate matrix table.
-    - Contains 11 entries of 16-bit big-endian minute values, one per cleaning mode. This is the source for the configured duration estimate: entry `cleaning_mode - 1`.
+    - One known schema names this 22-byte region `cleaning_modes`. Configured cleaning-mode durations may instead come from `robot_properties.cleaning_modes` in the product profile. Treating these bytes as eleven big-endian minute values remains unconfirmed.
 
 ### Data offset conventions
 
-The response layouts use zero-based, half-open ranges where applicable. A range from 63 through 65 therefore contains bytes 63 and 64. For the MU response, multi-byte runtime and counter fields are little-endian.
+The response layouts use zero-based, half-open schema ranges where applicable. A range from 63 through 65 therefore contains bytes 63 and 64. For the MU response, multi-byte runtime and counter fields are little-endian.
 
 ### Temperature & In-Water Sensor (`temperature`)
-The compact PWS feature reply may advertise in-water support, but that alone is not sufficient to enable this request: on the reference unit it has not produced a valid response and coincides with malformed short-ACL traffic. Keep polling disabled until a valid response is captured without disrupting status traffic.
+The compact PWS feature reply may advertise in-water support, but this command is separately gated by product-feature metadata: feature ID `30` (temperature) or `40` (in/out water). On the reference unit this request has not produced a valid response and has coincided with malformed short-ACL traffic. Keep periodic polling disabled unless support is known from product metadata or a one-shot probe produces a complete, checksum-valid `FFF8/09` response without disrupting status traffic. The ESPHome component therefore defaults `temperature_supported` to `false`; setting it to `true` explicitly selects a profile with temperature support and is intentionally independent of the compact `inWat` bit.
 - **Opcode**: `09`, **Destination**: `FFF8`, **Request Payload**: None
-- **Response Layout (10 Bytes)**:
-  - The first raw response-payload byte is an ACK; the data offsets below begin at raw payload byte 1.
+- **Response Layout (10-byte frame payload total)**:
+  - Raw response payload byte 0 is the ACK, leaving nine post-ACK data bytes numbered 0 through 8.
   - **Byte 0**: In-Water Status (`00` = Out of water, `01` = In water, `02` = Unknown, `03` = Error, `04` = No Baro/Calibrate, `0f` = Loading).
   - **Bytes 1 - 2**: Water Temperature (16-bit signed Big-Endian Int in Celsius, scaled by 10, e.g. `00 f5` = 24.5°C). Special values `0xFFFF` (`65535`), `0x03E9` (`1001`), and `0x03EA` (`1002`) indicate unavailable or reading-failed states.
-  - **Byte 3**: Measuring During Cycle active flag (`01` = Active).
-  - **Byte 4**: Measurement Health/Status code.
-  - **Bytes 5 - 9**: Epoch Timestamp of the last measurement (5 bytes).
+  - **Byte 3**: Named `mesuring_during_cycle` in one known schema. Its exact semantics remain unconfirmed.
+  - **Byte 4**: Current measurement-in-progress flag (`01` = measuring); treat it as a boolean rather than a health/error code.
+  - **Bytes 5 - 8**: Last-measurement Unix timestamp, 32-bit big-endian seconds. The prior five-byte interpretation came from reading the schema's `end: 9` as inclusive; the parser uses an exclusive end and passes four bytes to its integer conversion.
 
-### PWS Features (`pws_features`)
+The `temperature` command definition includes `pkfNeeded: true`, but this field does not provide an observable BLE capability check.
 
-- **Opcode**: `1A`, **Destination**: `FFFA`, **Request Payload**: None
-- **Response Layout (3 Bytes)**: This compact reply does not follow the structured-response ACK/data convention. The feature bitfield is response payload byte 2.
-  - Bit 0: Network sensing
-  - Bit 1: In-water sensing
-  - Bit 2: Cellular
-  - Bit 3: OTA
-  - Bit 4: PCS
+One IOT schema defines `set_inwat_params` as destination `FFF9`, opcode `0e`, with a one-byte request. Higher-level `preHoldTime` and `periodicInterval` values cannot both fit that wire definition. Do not assume this setup command is required before reading temperature.
 
 ---
 

@@ -27,6 +27,8 @@ void DolphinBle::setup() {
   instance_ = this;
   ESP_LOGI(TAG, "Setting up Dolphin BLE bridge for %s (%s)", this->mac_address_.c_str(),
            this->name_filter_.empty() ? "no name filter" : this->name_filter_.c_str());
+  ESP_LOGI(TAG, "Local protocol profile: MU leds.start=%u, temperature=%s",
+           this->mu_led_data_offset_, this->temperature_supported_ ? "enabled" : "disabled");
 
   this->parsed_mac_ = this->parse_mac_();
   if (!this->parsed_mac_) {
@@ -65,7 +67,6 @@ void DolphinBle::set_manual_drive_direction_select(select::Select *select) {
 void DolphinBle::loop() {
   this->maybe_start_gatt_();
   this->maybe_connect_();
-  this->handle_polling_();
 
   std::vector<std::vector<uint8_t>> local_queue;
   {
@@ -78,6 +79,9 @@ void DolphinBle::loop() {
   for (const auto &chunk : local_queue) {
     this->process_robot_notification_(chunk.data(), chunk.size());
   }
+
+  this->handle_polling_();
+  this->handle_command_queue_();
 }
 
 float DolphinBle::get_setup_priority() const { return setup_priority::DATA; }
@@ -269,8 +273,8 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
       this->notify_registered_ = false;
       this->cccd_written_ = false;
       this->mtu_done_ = false;
-      this->metadata_step_ = 0;
-      this->last_metadata_poll_ = 0;
+      this->initialization_queued_ = false;
+      this->command_queue_.clear();
       this->last_status_poll_ = 0;
       this->last_mu_poll_ = 0;
       this->last_temp_poll_ = 0;
@@ -289,69 +293,82 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
 
 void DolphinBle::handle_polling_() {
   if (!this->gatts_peer_connected_ || !this->local_notify_enabled_ || !this->mtu_done_) {
-    this->metadata_step_ = 0;
+    this->initialization_queued_ = false;
+    this->command_queue_.clear();
     this->last_status_poll_ = 0;
+    this->last_mu_poll_ = 0;
     this->last_temp_poll_ = 0;
     return;
   }
 
   uint32_t now = millis();
 
-  // 1. Connection setup: Poll static configuration blocks once
-  if (this->metadata_step_ < 4) {
-    if (now - this->last_metadata_poll_ >= 2000) {
-      if (this->metadata_step_ == 0) {
-        ESP_LOGI(TAG, "Polling PWS capability features...");
-        this->send_local_notification_text_("03:ab03fffa1a000002c1");
-        this->metadata_step_ = 1;
-      } else if (this->metadata_step_ == 1) {
-        ESP_LOGI(TAG, "Polling Motor Unit (MU) parameter data...");
-        this->send_local_notification_text_("03:ab03fffd0100030100ff03ae");
-        this->metadata_step_ = 2;
-      } else if (this->metadata_step_ == 2) {
-        ESP_LOGI(TAG, "Polling Power Supply (SM) parameter data...");
-        this->send_local_notification_text_("03:ab03fffd0200030200ff03b0");
-        this->metadata_step_ = 3;
-      } else if (this->metadata_step_ == 3) {
-        ESP_LOGI(TAG, "Robot metadata polling initialization finished.");
-        this->metadata_step_ = 4;
-      }
-      this->last_metadata_poll_ = now;
-    }
-    return; // Wait until all static metadata is read before starting periodic poll
+  if (!this->initialization_queued_) {
+    this->queue_initialization_();
+    this->initialization_queued_ = true;
+    this->last_status_poll_ = now;
+    this->last_mu_poll_ = now;
+    this->last_temp_poll_ = now;
   }
 
-  // 2. Poll real-time system status every 2 seconds
+  // Polls are deduplicated against queued/in-flight commands. This prevents
+  // simultaneous status, MU and temperature requests at the 30-second boundary.
   if (now - this->last_status_poll_ >= 2000) {
-    this->send_local_notification_text_("03:ab03fff807000002ac");
+    this->queue_command_frame_(0x07, 0xFFF8, nullptr, 0, "system_status", true);
     this->last_status_poll_ = now;
   }
 
-  // 3. MU includes live runtime counters and is also the only known LED
-  // readback candidate, so it must not be treated as connection-only data.
-  if (this->last_mu_poll_ == 0 || now - this->last_mu_poll_ >= 30000) {
-    this->send_local_notification_text_("03:ab03fffd0100030100ff03ae");
+  if (now - this->last_mu_poll_ >= 30000) {
+    const uint8_t payload[] = {0x01, 0x00, 0xff};
+    this->queue_command_frame_(0x01, 0xFFFD, payload, sizeof(payload), "get_mu_data", true);
     this->last_mu_poll_ = now;
   }
 
-  // 4. Poll water temperature sensor every 30 seconds (if capability is supported and sensor is registered)
-  if (this->in_water_capable_ && this->numeric_sensors_[NUMERIC_TEMPERATURE] != nullptr) {
-    if (this->last_temp_poll_ == 0 || now - this->last_temp_poll_ >= 30000) {
-      this->send_local_notification_text_("03:ab03fff809000002ae");
+  // Product temperature support is a separate profile feature. The
+  // compact inWat bit alone is not sufficient evidence that opcode 09 exists.
+  if (this->temperature_supported_ && this->numeric_sensors_[NUMERIC_TEMPERATURE] != nullptr) {
+    if (now - this->last_temp_poll_ >= 30000) {
+      this->queue_command_frame_(0x09, 0xFFF8, nullptr, 0, "temperature", true);
       this->last_temp_poll_ = now;
     }
   }
 
-  // 5. Periodically sync RTC time (every hour)
   if (this->time_id_ != nullptr) {
     if (this->last_rtc_sync_ == 0 || now - this->last_rtc_sync_ >= 3600000) {
       auto rtc_now = this->time_id_->now();
       if (rtc_now.is_valid()) {
+        this->send_timezone_();
         this->send_rtc_time_();
         this->last_rtc_sync_ = now;
       }
     }
   }
+}
+
+void DolphinBle::queue_initialization_() {
+  ESP_LOGI(TAG, "Queueing robot initialization commands in protocol order");
+  if (this->time_id_ != nullptr && this->time_id_->now().is_valid()) {
+    this->send_timezone_();
+    this->send_rtc_time_();
+    this->last_rtc_sync_ = millis();
+  }
+
+  const uint8_t sm_payload[] = {0x02, 0x00, 0xff};
+  this->queue_command_frame_(0x02, 0xFFFD, sm_payload, sizeof(sm_payload), "get_sm_data", true);
+  const uint8_t mu_payload[] = {0x01, 0x00, 0xff};
+  this->queue_command_frame_(0x01, 0xFFFD, mu_payload, sizeof(mu_payload), "get_mu_data", true);
+  this->queue_command_frame_(0x07, 0xFFF8, nullptr, 0, "system_status", true);
+  this->queue_command_frame_(0x1a, 0xFFFA, nullptr, 0, "pws_features", true);
+  this->queue_command_frame_(0xdf, 0xFFFE, nullptr, 0, "cloud_connection_status", true);
+  if (this->temperature_supported_ && this->numeric_sensors_[NUMERIC_TEMPERATURE] != nullptr)
+    this->queue_command_frame_(0x09, 0xFFF8, nullptr, 0, "temperature", true);
+}
+
+void DolphinBle::send_timezone_() {
+  int16_t offset_minutes = static_cast<int16_t>(ESPTime::timezone_offset() / 60);
+  uint16_t encoded = static_cast<uint16_t>(offset_minutes);
+  uint8_t payload[] = {static_cast<uint8_t>(encoded >> 8), static_cast<uint8_t>(encoded & 0xff)};
+  this->send_command_frame_(0xc2, 0xFFFE, payload, sizeof(payload), "timezone");
 }
 
 void DolphinBle::send_rtc_time_() {
@@ -371,20 +388,28 @@ void DolphinBle::send_rtc_time_() {
   this->send_command_frame_(0x09, 0xFFF9, payload, 4, "RealTimeClock");
 }
 
-void DolphinBle::send_local_notification_text_(const std::string &text) {
+bool DolphinBle::send_local_notification_text_(const std::string &text) {
   if (this->gatts_if_ == ESP_GATT_IF_NONE || this->gatts_char_handle_ == 0 ||
       !this->gatts_peer_connected_ || !this->local_notify_enabled_) {
-    return;
+    return false;
   }
   esp_err_t err = esp_ble_gatts_send_indicate(
       this->gatts_if_, this->gatts_conn_id_, this->gatts_char_handle_, text.size(),
       reinterpret_cast<uint8_t *>(const_cast<char *>(text.data())), false);
-  if (err != ESP_OK)
+  if (err != ESP_OK) {
     ESP_LOGE(TAG, "Local notify for raw text failed: %s", esp_err_to_name(err));
+    return false;
+  }
+  return true;
 }
 
 void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
                                      size_t payload_len, const char *name) {
+  this->queue_command_frame_(opcode, destination, payload, payload_len, name, false);
+}
+
+void DolphinBle::queue_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
+                                      size_t payload_len, const char *name, bool deduplicate) {
   std::vector<uint8_t> frame;
   frame.reserve(7 + payload_len + 2);
   frame.push_back(0xab);
@@ -405,18 +430,58 @@ void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination, const
 
   std::string text = "03:";
   text += format_hex_(frame.data(), frame.size());
-  this->tx_text_buffer_ = text;
-  ESP_LOGI(TAG, "Sending command %s opcode=0x%02x dest=0x%04x payload=%s text=\"%s\"", name, opcode,
-           destination, payload_len ? format_hex_(payload, payload_len).c_str() : "",
-           text.c_str());
-
-  this->send_local_notification_text_(text);
+  if (deduplicate) {
+    for (const auto &pending : this->command_queue_) {
+      if (pending.opcode == opcode && pending.destination == destination)
+        return;
+    }
+  }
+  this->command_queue_.push_back({opcode, destination, name, text});
+  ESP_LOGD(TAG, "Queued command %s opcode=0x%02x dest=0x%04x payload=%s", name, opcode,
+           destination, payload_len ? format_hex_(payload, payload_len).c_str() : "");
 }
 
 void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination,
                                      std::initializer_list<uint8_t> payload, const char *name) {
   std::vector<uint8_t> data(payload.begin(), payload.end());
   this->send_command_frame_(opcode, destination, data.data(), data.size(), name);
+}
+
+void DolphinBle::handle_command_queue_() {
+  if (this->command_queue_.empty() || !this->gatts_peer_connected_ || !this->local_notify_enabled_ ||
+      !this->mtu_done_)
+    return;
+
+  auto &pending = this->command_queue_.front();
+  uint32_t now = millis();
+  if (pending.sent_at != 0 && now - pending.sent_at < 2000)
+    return;
+  if (pending.attempts >= 2) {
+    ESP_LOGW(TAG, "Command %s timed out after two attempts", pending.name.c_str());
+    this->command_queue_.pop_front();
+    return;
+  }
+
+  pending.attempts++;
+  pending.sent_at = now == 0 ? 1 : now;
+  this->tx_text_buffer_ = pending.text;
+  ESP_LOGI(TAG, "Sending command %s opcode=0x%02x dest=0x%04x attempt=%u text=\"%s\"",
+           pending.name.c_str(), pending.opcode, pending.destination, pending.attempts,
+           pending.text.c_str());
+  this->send_local_notification_text_(pending.text);
+}
+
+void DolphinBle::handle_command_response_(uint16_t destination, uint8_t opcode) {
+  if (this->command_queue_.empty())
+    return;
+  const auto &pending = this->command_queue_.front();
+  if (pending.destination != destination || pending.opcode != opcode) {
+    ESP_LOGD(TAG, "Unsolicited/non-matching response dest=0x%04x opcode=0x%02x while waiting for %s",
+             destination, opcode, pending.name.c_str());
+    return;
+  }
+  ESP_LOGD(TAG, "Command %s received matching response", pending.name.c_str());
+  this->command_queue_.pop_front();
 }
 
 void DolphinBle::handle_robot_notification_(const uint8_t *data, size_t len) {
@@ -512,6 +577,18 @@ void DolphinBle::parse_robot_text_frame_(const std::vector<uint8_t> &frame) {
   uint8_t opcode = frame[4];
   const uint8_t *payload = &frame[7];
   size_t payload_len = frame.size() - 9;
+
+  this->handle_command_response_(dest, opcode);
+  if (payload_len == 0) {
+    ESP_LOGW(TAG, "Response dest=0x%04x opcode=0x%02x has no ACK byte", dest, opcode);
+    return;
+  }
+  uint8_t ack = payload[0];
+  if (ack != 0) {
+    ESP_LOGW(TAG, "Command response dest=0x%04x opcode=0x%02x returned ACK/status 0x%02x",
+             dest, opcode, ack);
+    return;
+  }
 
   if (dest == 0xFFFA && opcode == 0x1a) {
     this->publish_pws_features_from_frame_(frame);
@@ -831,6 +908,8 @@ std::string DolphinBle::mode_to_string_(uint8_t mode) {
       return "Custom";
     case 0x0b:
       return "Pickup";
+    case 0x0f:
+      return "Stairs";
     default:
       return "Unknown";
   }
@@ -859,6 +938,8 @@ uint8_t DolphinBle::mode_from_string_(const std::string &mode) {
     return 0x0a;
   if (mode == "Pickup")
     return 0x0b;
+  if (mode == "Stairs")
+    return 0x0f;
   if (mode == "Empty")
     return 0xfe;
   return 0x01;
@@ -906,9 +987,9 @@ std::string DolphinBle::robot_state_to_string_(uint8_t state) {
     case 0x04:
       return "Finished";
     case 0x05:
-      return "Programming";
-    case 0x06:
       return "Fault";
+    case 0x06:
+      return "Programming";
     case 0x07:
       return "Not Connected";
     default:
@@ -919,7 +1000,7 @@ std::string DolphinBle::robot_state_to_string_(uint8_t state) {
 std::string DolphinBle::pws_state_to_string_(uint8_t state) {
   switch (state) {
     case 0x00:
-      return "Active";
+      return "Off";
     case 0x01:
       return "Active";
     case 0x02:
@@ -932,8 +1013,6 @@ std::string DolphinBle::pws_state_to_string_(uint8_t state) {
       return "Cleaning";
     case 0x06:
       return "Sleep";
-    case 0x07:
-      return "Standby";
     default:
       return "Unknown";
   }
@@ -976,12 +1055,19 @@ void DolphinBle::publish_numeric_(uint8_t kind, float value) {
 }
 
 void DolphinBle::publish_configured_cycle_duration_() {
-  if (!this->configured_cycle_times_known_ || this->selected_cleaning_mode_ < 1 ||
-      this->selected_cleaning_mode_ > 10) {
+  if (!this->configured_cycle_times_known_) {
     this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
     return;
   }
-  uint16_t minutes = this->configured_cycle_times_mins_[this->selected_cleaning_mode_ - 1];
+  uint16_t minutes;
+  if (this->selected_cleaning_mode_ >= 1 && this->selected_cleaning_mode_ <= 11) {
+    minutes = this->configured_cycle_times_mins_[this->selected_cleaning_mode_ - 1];
+  } else if (this->selected_cleaning_mode_ == 15) {
+    minutes = this->stairs_cycle_time_mins_;
+  } else {
+    this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
+    return;
+  }
   if (minutes == 0 || minutes == 0xffff || minutes > 24 * 60) {
     this->publish_numeric_(NUMERIC_CYCLE_DURATION, NAN);
   } else {
@@ -995,11 +1081,12 @@ void DolphinBle::publish_text_(uint8_t kind, const std::string &value) {
 }
 
 void DolphinBle::publish_current_cleaning_mode_(uint8_t mode) {
-  if (mode >= 1 && mode <= 11) {
+  if ((mode >= 1 && mode <= 11) || mode == 15) {
     this->selected_cleaning_mode_ = mode;
   }
   std::string value = mode_to_string_(mode);
   this->publish_text_(TEXT_CLEANING_MODE, value);
+  // Stairs is product-feature gated and is not offered by the generic select.
   if (this->cleaning_mode_select_ != nullptr && mode >= 1 && mode <= 11)
     this->cleaning_mode_select_->publish_state(value);
 }
@@ -1104,7 +1191,7 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
 }
 
 void DolphinBle::publish_temperature_from_frame_(const std::vector<uint8_t> &frame) {
-  if (frame.size() < 10)
+  if (frame.size() < 13)
     return;
   const uint8_t *payload = &frame[7];
   // The first payload byte is the response ACK.
@@ -1146,23 +1233,28 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
     uint8_t imp_mins = payload[145 + D];
     this->publish_numeric_(NUMERIC_MU_IMPELLER_RUNTIME, static_cast<float>(imp_hrs) + static_cast<float>(imp_mins) / 60.0f);
 
-    // Combined Software Version String
-    uint8_t major = payload[152 + D];
-    uint16_t minor = 0;
-    if (major != 0xFF) {
-      minor = read_u16_le_(payload + 153 + D);
-    } else if (payload[154 + D] != 0xFF) {
-      major = payload[154 + D];
-      minor = read_u16_le_(payload + 155 + D);
+    // MU/S/1 has no separate major-version field. Its software-version value
+    // is the little-endian two-byte field at data offsets 168-169.
+    uint16_t sw_version = read_u16_le_(payload + 168 + D);
+    if (sw_version == 0xffff) {
+      this->publish_text_(TEXT_MU_SW_VERSION, "Unknown");
+    } else {
+      char ver_buf[8];
+      std::snprintf(ver_buf, sizeof(ver_buf), "%04x", sw_version);
+      this->publish_text_(TEXT_MU_SW_VERSION, ver_buf);
     }
-    char ver_buf[16];
-    std::snprintf(ver_buf, sizeof(ver_buf), "%d.%d", major, minor);
-    this->publish_text_(TEXT_MU_SW_VERSION, ver_buf);
 
-    // Packed LED configuration at raw payload byte 156 (data byte 155):
+    // This field comes from a robot-specific MU protocol profile.
+    // mu_led_data_offset_ is post-ACK; add one for the raw response payload.
     // bits 3-7 are intensity in 5% increments, bit 0 is Disco, and bit 1
     // is Constant. No mode bit means Blinking.
-    uint8_t led_packed = payload[156];
+    size_t led_raw_offset = static_cast<size_t>(this->mu_led_data_offset_) + 1;
+    if (led_raw_offset >= payload_len) {
+      ESP_LOGW(TAG, "Configured MU LED data offset %u is outside payload length %u",
+               this->mu_led_data_offset_, static_cast<unsigned>(payload_len));
+      return;
+    }
+    uint8_t led_packed = payload[led_raw_offset];
     uint8_t led_intensity = static_cast<uint8_t>(((led_packed >> 3) & 0x1f) * 5);
     bool led_on = led_intensity != 0;
     std::string led_effect = "Blinking";
@@ -1172,8 +1264,9 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
       led_effect = "Constant";
     }
 
-    ESP_LOGD(TAG, "Telemetry LED packed byte raw[156]=0x%02X enabled=%d intensity=%u mode=%s",
-             led_packed, led_on, led_intensity, led_effect.c_str());
+    ESP_LOGD(TAG, "Telemetry LED packed byte data[%u]/raw[%u]=0x%02X enabled=%d intensity=%u mode=%s",
+             this->mu_led_data_offset_, static_cast<unsigned>(led_raw_offset), led_packed, led_on,
+             led_intensity, led_effect.c_str());
     if (this->led_light_ != nullptr) {
       this->is_telemetry_sync_ = true;
       auto call = this->led_light_->make_call();
@@ -1220,8 +1313,8 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
       this->weekly_repeat_switch_->publish_state(this->schedule_repeat_);
     }
 
-    for (int day = 0; day < 7; day++) {
-      size_t block_offset = 73 + D + day * 5;
+    for (int block = 0; block < 7; block++) {
+      size_t block_offset = 73 + D + block * 5;
       if (block_offset + 5 <= payload_len) {
         uint8_t day_id = payload[block_offset];
         uint8_t enabled = payload[block_offset + 1];
@@ -1229,6 +1322,11 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
         uint8_t minute = payload[block_offset + 3];
         uint8_t mode = payload[block_offset + 4];
 
+        if (day_id < 1 || day_id > 7) {
+          ESP_LOGW(TAG, "Ignoring invalid schedule day ID %u", day_id);
+          continue;
+        }
+        size_t day = day_id - 1;  // Home Assistant order: Sunday=0 ... Saturday=6.
         this->day_id_val_[day] = day_id;
         this->day_enabled_[day] = (enabled == 0x01);
         this->day_hour_[day] = hour;
@@ -1272,10 +1370,6 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
 
     if (payload_len >= 237) {
       ESP_LOGI(TAG, "SM payload bytes 210-240: %s", this->format_hex_(payload + 210, 30).c_str());
-      for (size_t i = 0; i < 10; i++)
-        this->configured_cycle_times_mins_[i] = read_u16_be_(payload + 217 + D + i * 2);
-      this->configured_cycle_times_known_ = true;
-      this->publish_configured_cycle_duration_();
     }
 
     std::string ssid;
@@ -1421,6 +1515,8 @@ void DolphinBle::set_weekly_repeat_state(bool state) {
 }
 
 void DolphinBle::set_day_time_option(uint8_t day, const std::string &value) {
+  if (day >= 7)
+    return;
   int hour = 9;
   int minute = 0;
   if (std::sscanf(value.c_str(), "%d:%d", &hour, &minute) == 2) {
@@ -1437,6 +1533,8 @@ void DolphinBle::set_day_time_option(uint8_t day, const std::string &value) {
 }
 
 void DolphinBle::set_day_mode_option(uint8_t day, const std::string &value) {
+  if (day >= 7)
+    return;
   bool enabled = (value != "Disabled");
   uint8_t mode = 1;
   if (enabled) {
@@ -1461,9 +1559,11 @@ void DolphinBle::send_weekly_schedule_() {
   // Byte 1: Trigger source
   payload.push_back(this->schedule_trigger_by_);
 
-  // Bytes 2-36: 7 day blocks
-  for (int day = 0; day < 7; day++) {
-    payload.push_back(this->day_id_val_[day]); // Use PWS expected validation day ID!
+  // Protocol wire order is Monday through Saturday, then Sunday: IDs 2..7,1.
+  static constexpr uint8_t WIRE_DAY_IDS[] = {2, 3, 4, 5, 6, 7, 1};
+  for (uint8_t day_id : WIRE_DAY_IDS) {
+    size_t day = day_id - 1;  // Entity storage order is Sunday=0 ... Saturday=6.
+    payload.push_back(day_id);
     payload.push_back(this->day_enabled_[day] ? 0x01 : 0x00);
     payload.push_back(this->day_hour_[day]);
     payload.push_back(this->day_minute_[day]);
@@ -1490,8 +1590,8 @@ void DolphinBle::parse_weekly_timer_response_(const std::vector<uint8_t> &frame)
     }
     this->schedule_trigger_by_ = payload[1 + D];
 
-    for (int day = 0; day < 7; day++) {
-      size_t block_offset = 2 + D + day * 5;
+    for (int block = 0; block < 7; block++) {
+      size_t block_offset = 2 + D + block * 5;
       if (block_offset + 5 <= payload_len) {
         uint8_t day_id = payload[block_offset];
         uint8_t enabled = payload[block_offset + 1];
@@ -1499,6 +1599,11 @@ void DolphinBle::parse_weekly_timer_response_(const std::vector<uint8_t> &frame)
         uint8_t minute = payload[block_offset + 3];
         uint8_t mode = payload[block_offset + 4];
 
+        if (day_id < 1 || day_id > 7) {
+          ESP_LOGW(TAG, "Ignoring invalid weekly-timer day ID %u", day_id);
+          continue;
+        }
+        size_t day = day_id - 1;
         this->day_id_val_[day] = day_id;
         this->day_enabled_[day] = (enabled == 0x01);
         this->day_hour_[day] = hour;

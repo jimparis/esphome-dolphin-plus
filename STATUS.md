@@ -17,7 +17,7 @@ All response payloads described here begin with a one-byte response ACK. The doc
 
 - `system_status`: data bytes 0-3 are robot state, PWS state, filter state, and active cleaning mode. Data bytes 4-5 are the cycle type/time field, bytes 6-9 are device uptime, bytes 10-13 are the UTC cycle start time, and bytes 30-51 contain the cleaning-duration estimate table. Multi-byte status values are big-endian.
 - `get_sm_data`: timezone is at data bytes 63-64; quick features at byte 65; weekly schedule at bytes 72-107; start delay at bytes 108-113; SSID at bytes 118-150; and configured cycle times at bytes 217-236.
-- `get_mu_data`: robot type is at bytes 132-133; flash counter at 134-137; cycle time at 138-139; PCB runtime at 140-142; impeller runtime at 143-145; turn-on count at 146-147; incomplete cycles at 148-149; packed LED state at 155; clean mode at 167; and climb period at 170. The multi-byte MU fields are little-endian.
+- `get_mu_data`: robot type is at bytes 132-133; flash counter at 134-137; cycle time at 138-139; PCB runtime at 140-142; impeller runtime at 143-145; turn-on count at 146-147; incomplete cycles at 148-149; packed LED state at 157 for `MU/S/1` (with a compatible adjacent value observed at 155); clean mode at 167; software-version/checksum at 168-169; and climb period at 170. The multi-byte MU fields are little-endian.
 
 ## Device Observations
 
@@ -35,7 +35,7 @@ The phone reported 1% progress at 14:46 and 29% at 15:19, with an estimated fini
 
 ### Configured cycle duration
 
-The status estimate table contains repeated 120-minute values, while the cycle type/time field contains values such as `0x0100`, `0x0200`, and `0x0300`. The implementation therefore uses SM data bytes 217-236 for configured cycle durations. The current live table is `120, 60, 120, 120, 120, 120, 120, 120, 120, 120` minutes.
+The status estimate table and SM bytes 217-236 are not used by the reference protocol implementation. The component uses the `SM/62/1` cleaning-duration properties: regular 120, short 60, cove 120, floor 120, waterline 120, ultra 120, spot 120, wall 120, TicTac 600, custom 120, pickup 5, and stairs 120 minutes.
 
 ### Cleaning mode
 
@@ -67,7 +67,7 @@ The PWS advertises in-water support, but its temperature request has not yielded
 
 ### LED readback
 
-Raw MU payload byte 156 (data byte 155) is a packed LED state: bits 3-7 hold intensity in 5% increments, bit 0 selects Disco, bit 1 selects Constant, and neither mode bit selects Blinking. A live `0xa2` value decoded to 100% Constant while the physical LED was solid blue, confirming the mapping. The previously used data byte 157 is not the LED field.
+Raw MU payload byte 156 (data byte 155) held `0xa2`, a valid packed value for 100% Constant that agreed with the physical solid-blue light. That observation does not establish that the `MU/S/1` declaration of `leds.start = 157` is wrong: the historical change moved the offset and introduced the correct packed decoder simultaneously. A controller using byte 157 shows the correct configuration on cold start before any write, which strongly confirms byte 157 for this profile. Bytes 155-157 are also named red, green, and blue, so byte 155 may be a replicated or channel-related value. The integration now follows byte 157 by default while retaining a profile override and logging all three candidates for controlled comparison.
 
 ## Future Work
 
