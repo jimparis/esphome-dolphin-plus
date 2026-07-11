@@ -135,7 +135,7 @@ class DolphinBle : public Component {
                            const char *name, bool expects_response = true);
   void queue_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
                             size_t payload_len, const char *name, bool deduplicate, bool expects_response = true);
-  void request_status_burst_();
+  void request_status_refresh_();
   void handle_command_response_(uint16_t destination, uint8_t opcode);
   void handle_robot_notification_(const uint8_t *data, size_t len);
   void process_robot_notification_(const uint8_t *data, size_t len);
@@ -229,7 +229,6 @@ class DolphinBle : public Component {
   uint32_t last_mu_poll_{0};
   uint32_t last_temp_poll_{0};
   uint32_t last_rtc_sync_{0};
-  uint32_t fast_status_until_{0};
   time::RealTimeClock *time_id_{nullptr};
 
   std::string rx_text_buffer_;

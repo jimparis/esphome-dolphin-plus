@@ -279,7 +279,6 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
       this->last_status_poll_ = 0;
       this->last_mu_poll_ = 0;
       this->last_temp_poll_ = 0;
-      this->fast_status_until_ = 0;
       this->last_remaining_publish_ = 0;
       this->cycle_active_ = false;
       this->current_cycle_start_time_ = 0;
@@ -319,10 +318,7 @@ void DolphinBle::handle_polling_() {
 
   // Polls are deduplicated against queued/in-flight commands. This prevents
   // simultaneous status, MU and temperature requests at the 30-second boundary.
-  bool fast_status =
-      this->fast_status_until_ != 0 && static_cast<int32_t>(this->fast_status_until_ - now) > 0;
-  uint32_t status_interval = fast_status ? 1000 : 2000;
-  if (now - this->last_status_poll_ >= status_interval) {
+  if (now - this->last_status_poll_ >= 2000) {
     this->queue_command_frame_(0x07, 0xFFF8, nullptr, 0, "system_status", true);
     this->last_status_poll_ = now;
   }
@@ -464,11 +460,9 @@ void DolphinBle::send_command_frame_(uint8_t opcode, uint16_t destination,
   this->send_command_frame_(opcode, destination, data.data(), data.size(), name, expects_response);
 }
 
-void DolphinBle::request_status_burst_() {
-  uint32_t now = millis();
-  this->fast_status_until_ = now + 60000UL;
-  this->last_status_poll_ = 0;
+void DolphinBle::request_status_refresh_() {
   this->queue_command_frame_(0x07, 0xFFF8, nullptr, 0, "system_status", true);
+  this->last_status_poll_ = millis();
 }
 
 void DolphinBle::handle_command_queue_() {
@@ -1482,23 +1476,23 @@ void DolphinBleButton::press_action() {
 
 void DolphinBle::press_start_cleaning() {
   this->send_command_frame_(0x06, 0xFFF8, {}, "start_up_dolphin", false);
-  this->request_status_burst_();
+  this->request_status_refresh_();
 }
 
 void DolphinBle::press_stop_cleaning() {
   this->send_command_frame_(0x05, 0xFFF8, {}, "shutdown_dolphin", false);
-  this->request_status_burst_();
+  this->request_status_refresh_();
 }
 
 void DolphinBle::press_reset_filter() {
   this->send_command_frame_(0x0a, 0xFFF7, {}, "reset_filter_indicator", false);
-  this->request_status_burst_();
+  this->request_status_refresh_();
 }
 
 void DolphinBle::press_pickup_mode() {
   this->publish_current_cleaning_mode_(0x0b);
   this->send_command_frame_(0x03, 0xFFE9, {0x0b}, "start_pickup_mode");
-  this->request_status_burst_();
+  this->request_status_refresh_();
 }
 
 void DolphinBle::press_quit_manual_drive() {
@@ -1511,7 +1505,7 @@ void DolphinBle::press_refresh_status() {
   const uint8_t mu_payload[] = {0x01, 0x00, 0xff};
   this->queue_command_frame_(0x01, 0xFFFD, mu_payload, sizeof(mu_payload), "get_mu_data", true);
   this->queue_command_frame_(0x07, 0xFFF8, nullptr, 0, "system_status", true);
-  this->request_status_burst_();
+  this->last_status_poll_ = millis();
 }
 
 void DolphinBle::set_cleaning_mode_option(const std::string &option) {
@@ -1522,7 +1516,7 @@ void DolphinBle::set_cleaning_mode_option(const std::string &option) {
   this->publish_configured_cycle_duration_();
   this->publish_cycle_time_remaining_();
   this->send_command_frame_(0x03, 0xFFE9, {mode}, "set_cleaning_mode");
-  this->request_status_burst_();
+  this->request_status_refresh_();
 }
 
 void DolphinBle::set_manual_drive_direction_option(const std::string &option) {
@@ -1538,7 +1532,7 @@ void DolphinBle::set_manual_drive_direction_option(const std::string &option) {
     uint8_t speed = static_cast<uint8_t>(std::clamp(this->selected_manual_drive_speed_, 0.0f, 100.0f));
     ESP_LOGI(TAG, "Steering robot direction=%s speed=%d", option.c_str(), speed);
     this->send_command_frame_(0x03, 0xFFF7, {direction, speed}, "manual_drive", false);
-    this->request_status_burst_();
+    this->request_status_refresh_();
   }
 }
 
@@ -1550,7 +1544,7 @@ void DolphinBle::set_manual_drive_speed(float speed) {
     ESP_LOGI(TAG, "Updating steering speed direction=%s speed=%d",
              direction_to_string_(direction).c_str(), speed_byte);
     this->send_command_frame_(0x03, 0xFFF7, {direction, speed_byte}, "manual_drive", false);
-    this->request_status_burst_();
+    this->request_status_refresh_();
   }
 }
 
@@ -1610,7 +1604,7 @@ void DolphinBle::write_led_state(light::LightState *state) {
   // Send the command
   uint8_t enabled_byte = enabled ? 0x01 : 0x00;
   this->send_command_frame_(0x10, 0xFFF7, {enabled_byte, intensity, mode}, "led_control", false);
-  this->request_status_burst_();
+  this->request_status_refresh_();
 }
 
 void DolphinBle::set_weekly_repeat_state(bool state) {

@@ -76,7 +76,7 @@ Live matrix testing with the official app and ESPHome verified that data byte 15
 
 Although the PWS processes LED control writes (`FFF7/10`) and manual drive writes (`FFF7/03`), it does not return a clean ACK response on this unit (often causing link-layer BLE aborts/short-ACL warnings). To prevent command queue blockage, these `FFF7` commands are now treated as write-only (`expects_response = false`) and popped immediately after transmission, resolving the 4-second command queue timeouts. The integration now defaults `mu_led_data_offset` to `155`.
 
-Start and stop cleaning commands are also treated as write-only on the reference unit: they can take effect physically without producing the expected clean response frame. After control writes, the component temporarily polls status every second for 60 seconds so Home Assistant sees robot-state and cycle-timing transitions sooner.
+Start and stop cleaning commands are also treated as write-only on the reference unit: they can take effect physically without producing the expected clean response frame. After control writes, the component queues an immediate `system_status` refresh and then continues the normal 2-second status polling cadence.
 
 ## Future Work
 
