@@ -82,6 +82,18 @@ text_sensor:
     dolphin_ble_id: dolphin_bridge
     kind: mu_sw_version
     name: MU Software Version
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: active_fault
+    name: Active Fault
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: weekly_schedule
+    name: Weekly Schedule
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: delay_timer
+    name: Delay Timer
 
 sensor:
   - platform: dolphin_ble

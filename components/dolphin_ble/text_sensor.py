@@ -18,6 +18,9 @@ KINDS = {
     "wifi_ssid": 6,
     "quick_features": 7,
     "mu_sw_version": 8,
+    "active_fault": 9,
+    "weekly_schedule": 10,
+    "delay_timer": 11,
 }
 
 CONFIG_SCHEMA = text_sensor.text_sensor_schema().extend(
@@ -32,5 +35,14 @@ async def to_code(config):
     parent = await cg.get_variable(config[CONF_DOLPHIN_BLE_ID])
     var = await text_sensor.new_text_sensor(config)
     cg.add(parent.set_text_sensor(config[CONF_KIND], var))
-    if config[CONF_KIND] in ("cleaning_mode", "in_water_status", "filter_status", "wifi_ssid", "mu_sw_version"):
+    if config[CONF_KIND] in (
+        "cleaning_mode",
+        "in_water_status",
+        "filter_status",
+        "wifi_ssid",
+        "mu_sw_version",
+        "active_fault",
+        "weekly_schedule",
+        "delay_timer",
+    ):
         cg.add(var.publish_state("NA"))

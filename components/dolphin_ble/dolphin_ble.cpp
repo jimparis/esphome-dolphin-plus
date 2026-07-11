@@ -1047,6 +1047,30 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
   this->publish_text_(TEXT_FILTER_STATUS, filter_status_to_string_(filter_state));
   this->publish_current_cleaning_mode_(payload[4]);
 
+  constexpr size_t D = 1;
+  if (payload_len >= 30) {
+    uint8_t faults_code = payload[18 + D];
+    if (faults_code != 0) {
+      uint16_t faults_pcb_hrs = read_u16_be_(payload + 19 + D);
+      uint8_t faults_pcb_mins = payload[21 + D];
+      uint16_t faults_cycle_counter = read_u16_be_(payload + 22 + D);
+      uint16_t faults_val_1 = read_u16_be_(payload + 24 + D);
+      uint16_t faults_val_2 = read_u16_be_(payload + 26 + D);
+      uint16_t faults_val_3 = read_u16_be_(payload + 28 + D);
+
+      char fault_buf[128];
+      std::snprintf(fault_buf, sizeof(fault_buf),
+                    "Code: 0x%02X, PCB Hours: %u:%02u, Cycle: %u, V1: 0x%04X, V2: 0x%04X, V3: 0x%04X",
+                    faults_code, faults_pcb_hrs, faults_pcb_mins, faults_cycle_counter,
+                    faults_val_1, faults_val_2, faults_val_3);
+      this->publish_text_(TEXT_ACTIVE_FAULT, fault_buf);
+    } else {
+      this->publish_text_(TEXT_ACTIVE_FAULT, "OK");
+    }
+  } else {
+    this->publish_text_(TEXT_ACTIVE_FAULT, "OK");
+  }
+
   if (payload_len >= 14) {
     // Cycle information contains cycle type/time, device uptime, and UTC
     // cycle start time. With the ACK at raw payload[0], the UTC field is raw
@@ -1180,6 +1204,54 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
     if (!qf_str.empty())
       qf_str.pop_back();
     this->publish_text_(TEXT_QUICK_FEATURES, qf_str);
+
+    // Parse weekly schedule (offset 72 to 107)
+    uint8_t should_repeat = payload[72 + D];
+    std::string sched_str = "Repeat: " + std::string(should_repeat == 0 ? "Yes" : "No") + " | Schedule: ";
+    bool has_active_days = false;
+
+    for (int day = 0; day < 7; day++) {
+      size_t block_offset = 73 + D + day * 5;
+      if (block_offset + 5 <= payload_len) {
+        uint8_t day_id = payload[block_offset];
+        uint8_t enabled = payload[block_offset + 1];
+        uint8_t hour = payload[block_offset + 2];
+        uint8_t minute = payload[block_offset + 3];
+        uint8_t mode = payload[block_offset + 4];
+
+        if (enabled == 0x01 && day_id >= 1 && day_id <= 7) {
+          static const char *DAY_NAMES[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+          char day_buf[48];
+          std::snprintf(day_buf, sizeof(day_buf), "%s@%02d:%02d (%s), ",
+                        DAY_NAMES[day_id - 1], hour, minute, mode_to_string_(mode).c_str());
+          sched_str += day_buf;
+          has_active_days = true;
+        }
+      }
+    }
+    if (has_active_days) {
+      sched_str.pop_back(); // Remove trailing space
+      sched_str.pop_back(); // Remove trailing comma
+    } else {
+      sched_str += "None";
+    }
+    this->publish_text_(TEXT_WEEKLY_SCHEDULE, sched_str);
+
+    // Parse start delay timer (offset 108 to 113)
+    uint8_t delay_enabled = payload[110 + D];
+    if (delay_enabled == 0x01) {
+      uint8_t trigger = payload[108 + D];
+      uint8_t hour = payload[111 + D];
+      uint8_t minute = payload[112 + D];
+      uint8_t mode = payload[113 + D];
+
+      char delay_buf[64];
+      std::snprintf(delay_buf, sizeof(delay_buf), "Enabled (Type %u): Delay %02d:%02d (%s)",
+                    trigger, hour, minute, mode_to_string_(mode).c_str());
+      this->publish_text_(TEXT_DELAY_TIMER, delay_buf);
+    } else {
+      this->publish_text_(TEXT_DELAY_TIMER, "Disabled");
+    }
 
     if (payload_len >= 237) {
       ESP_LOGI(TAG, "SM payload bytes 210-240: %s", this->format_hex_(payload + 210, 30).c_str());

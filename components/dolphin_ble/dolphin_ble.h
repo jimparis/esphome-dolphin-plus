@@ -30,7 +30,7 @@ namespace dolphin_ble {
 class DolphinBle : public Component {
  public:
   static constexpr size_t NUM_NUMERIC_SENSORS = 13;
-  static constexpr size_t NUM_TEXT_SENSORS = 9;
+  static constexpr size_t NUM_TEXT_SENSORS = 12;
 
   void setup() override;
   void loop() override;
@@ -81,6 +81,9 @@ class DolphinBle : public Component {
     TEXT_WIFI_SSID = 6,
     TEXT_QUICK_FEATURES = 7,
     TEXT_MU_SW_VERSION = 8,
+    TEXT_ACTIVE_FAULT = 9,
+    TEXT_WEEKLY_SCHEDULE = 10,
+    TEXT_DELAY_TIMER = 11,
   };
 
   static DolphinBle *instance_;
