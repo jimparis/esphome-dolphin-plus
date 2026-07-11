@@ -11,13 +11,13 @@ CONF_KIND = "kind"
 KINDS = {
     "cleaning_mode": 0,
     "manual_drive_direction": 1,
-    "monday_mode": 2,
-    "tuesday_mode": 3,
-    "wednesday_mode": 4,
-    "thursday_mode": 5,
-    "friday_mode": 6,
-    "saturday_mode": 7,
-    "sunday_mode": 8,
+    "sunday_mode": 2,
+    "monday_mode": 3,
+    "tuesday_mode": 4,
+    "wednesday_mode": 5,
+    "thursday_mode": 6,
+    "friday_mode": 7,
+    "saturday_mode": 8,
 }
 
 OPTIONS = {

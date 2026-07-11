@@ -9,13 +9,13 @@ CONF_DOLPHIN_BLE_ID = "dolphin_ble_id"
 CONF_KIND = "kind"
 
 KINDS = {
-    "monday_time": 0,
-    "tuesday_time": 1,
-    "wednesday_time": 2,
-    "thursday_time": 3,
-    "friday_time": 4,
-    "saturday_time": 5,
-    "sunday_time": 6,
+    "sunday_time": 0,
+    "monday_time": 1,
+    "tuesday_time": 2,
+    "wednesday_time": 3,
+    "thursday_time": 4,
+    "friday_time": 5,
+    "saturday_time": 6,
 }
 
 dolphin_ble_ns = cg.esphome_ns.namespace("dolphin_ble")

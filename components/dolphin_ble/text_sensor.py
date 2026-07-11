@@ -19,8 +19,7 @@ KINDS = {
     "quick_features": 7,
     "mu_sw_version": 8,
     "active_fault": 9,
-    "weekly_schedule": 10,
-    "delay_timer": 11,
+    "delay_timer": 10,
 }
 
 CONFIG_SCHEMA = text_sensor.text_sensor_schema().extend(
@@ -42,7 +41,6 @@ async def to_code(config):
         "wifi_ssid",
         "mu_sw_version",
         "active_fault",
-        "weekly_schedule",
         "delay_timer",
     ):
         cg.add(var.publish_state("NA"))

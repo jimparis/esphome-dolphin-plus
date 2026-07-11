@@ -542,6 +542,14 @@ void DolphinBle::parse_robot_text_frame_(const std::vector<uint8_t> &frame) {
     this->publish_sm_data_from_frame_(frame);
     return;
   }
+  if (dest == 0xFFF9 && opcode == 0x45) {
+    this->parse_weekly_timer_response_(frame);
+    return;
+  }
+  if (dest == 0xFFF9 && opcode == 0x47) {
+    ESP_LOGI(TAG, "Single day schedule updated and confirmed by PWS.");
+    return;
+  }
 
   ESP_LOGD(TAG, "Unrecognized robot response dest=0x%04x opcode=0x%02x payload_len=%u", dest, opcode,
            static_cast<unsigned>(payload_len));
@@ -1212,9 +1220,6 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
       this->weekly_repeat_switch_->publish_state(this->schedule_repeat_);
     }
 
-    std::string sched_str = "Repeat: " + std::string(this->schedule_repeat_ ? "Yes" : "No") + " | Schedule: ";
-    bool has_active_days = false;
-
     for (int day = 0; day < 7; day++) {
       size_t block_offset = 73 + D + day * 5;
       if (block_offset + 5 <= payload_len) {
@@ -1224,44 +1229,26 @@ void DolphinBle::publish_sm_data_from_frame_(const std::vector<uint8_t> &frame) 
         uint8_t minute = payload[block_offset + 3];
         uint8_t mode = payload[block_offset + 4];
 
-        if (day_id >= 1 && day_id <= 7) {
-          int d_idx = day_id - 1;
-          this->day_enabled_[d_idx] = (enabled == 0x01);
-          this->day_hour_[d_idx] = hour;
-          this->day_minute_[d_idx] = minute;
-          this->day_mode_[d_idx] = mode;
+        this->day_id_val_[day] = day_id;
+        this->day_enabled_[day] = (enabled == 0x01);
+        this->day_hour_[day] = hour;
+        this->day_minute_[day] = minute;
+        this->day_mode_[day] = mode;
 
-          // Publish time string to text entity
-          if (this->day_time_texts_[d_idx] != nullptr) {
-            char time_buf[16];
-            std::snprintf(time_buf, sizeof(time_buf), "%02d:%02d", hour, minute);
-            this->day_time_texts_[d_idx]->publish_state(time_buf);
-          }
+        // Publish time string to text entity
+        if (this->day_time_texts_[day] != nullptr) {
+          char time_buf[16];
+          std::snprintf(time_buf, sizeof(time_buf), "%02d:%02d", hour, minute);
+          this->day_time_texts_[day]->publish_state(time_buf);
+        }
 
-          // Publish mode to select entity
-          if (this->day_mode_selects_[d_idx] != nullptr) {
-            std::string mode_str = (enabled == 0x01) ? mode_to_string_(mode) : "Disabled";
-            this->day_mode_selects_[d_idx]->publish_state(mode_str);
-          }
-
-          if (enabled == 0x01) {
-            static const char *DAY_NAMES[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
-            char day_buf[48];
-            std::snprintf(day_buf, sizeof(day_buf), "%s@%02d:%02d (%s), ",
-                          DAY_NAMES[d_idx], hour, minute, mode_to_string_(mode).c_str());
-            sched_str += day_buf;
-            has_active_days = true;
-          }
+        // Publish mode to select entity
+        if (this->day_mode_selects_[day] != nullptr) {
+          std::string mode_str = (enabled == 0x01) ? mode_to_string_(mode) : "Disabled";
+          this->day_mode_selects_[day]->publish_state(mode_str);
         }
       }
     }
-    if (has_active_days) {
-      sched_str.pop_back(); // Remove trailing space
-      sched_str.pop_back(); // Remove trailing comma
-    } else {
-      sched_str += "None";
-    }
-    this->publish_text_(TEXT_WEEKLY_SCHEDULE, sched_str);
 
     // Parse start delay timer (offset 108 to 113)
     uint8_t delay_enabled = payload[110 + D];
@@ -1476,7 +1463,7 @@ void DolphinBle::send_weekly_schedule_() {
 
   // Bytes 2-36: 7 day blocks
   for (int day = 0; day < 7; day++) {
-    payload.push_back(static_cast<uint8_t>(day + 1)); // Day ID: 1 (Mon) to 7 (Sun)
+    payload.push_back(this->day_id_val_[day]); // Use PWS expected validation day ID!
     payload.push_back(this->day_enabled_[day] ? 0x01 : 0x00);
     payload.push_back(this->day_hour_[day]);
     payload.push_back(this->day_minute_[day]);
@@ -1486,6 +1473,54 @@ void DolphinBle::send_weekly_schedule_() {
   ESP_LOGI(TAG, "Sending weekly schedule: Repeat=%d, Trigger=0x%02X",
            this->schedule_repeat_, this->schedule_trigger_by_);
   this->send_command_frame_(0x45, 0xFFF9, payload.data(), payload.size(), "set_weekly_timer");
+}
+
+void DolphinBle::parse_weekly_timer_response_(const std::vector<uint8_t> &frame) {
+  if (frame.size() < 9)
+    return;
+  size_t payload_len = frame.size() - 9;
+  const uint8_t *payload = &frame[7];
+  constexpr size_t D = 1; // ACK byte at index 0
+
+  if (payload_len >= 38) {
+    uint8_t should_repeat = payload[0 + D];
+    this->schedule_repeat_ = (should_repeat == 0);
+    if (this->weekly_repeat_switch_ != nullptr) {
+      this->weekly_repeat_switch_->publish_state(this->schedule_repeat_);
+    }
+    this->schedule_trigger_by_ = payload[1 + D];
+
+    for (int day = 0; day < 7; day++) {
+      size_t block_offset = 2 + D + day * 5;
+      if (block_offset + 5 <= payload_len) {
+        uint8_t day_id = payload[block_offset];
+        uint8_t enabled = payload[block_offset + 1];
+        uint8_t hour = payload[block_offset + 2];
+        uint8_t minute = payload[block_offset + 3];
+        uint8_t mode = payload[block_offset + 4];
+
+        this->day_id_val_[day] = day_id;
+        this->day_enabled_[day] = (enabled == 0x01);
+        this->day_hour_[day] = hour;
+        this->day_minute_[day] = minute;
+        this->day_mode_[day] = mode;
+
+        // Publish time string to text entity
+        if (this->day_time_texts_[day] != nullptr) {
+          char time_buf[16];
+          std::snprintf(time_buf, sizeof(time_buf), "%02d:%02d", hour, minute);
+          this->day_time_texts_[day]->publish_state(time_buf);
+        }
+
+        // Publish mode to select entity
+        if (this->day_mode_selects_[day] != nullptr) {
+          std::string mode_str = (enabled == 0x01) ? mode_to_string_(mode) : "Disabled";
+          this->day_mode_selects_[day]->publish_state(mode_str);
+        }
+      }
+    }
+    ESP_LOGI(TAG, "Weekly schedule updated and confirmed by PWS.");
+  }
 }
 
 void DolphinBleSwitch::write_state(bool state) {

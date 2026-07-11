@@ -32,7 +32,7 @@ namespace dolphin_ble {
 class DolphinBle : public Component {
  public:
   static constexpr size_t NUM_NUMERIC_SENSORS = 13;
-  static constexpr size_t NUM_TEXT_SENSORS = 12;
+  static constexpr size_t NUM_TEXT_SENSORS = 11;
 
   void setup() override;
   void loop() override;
@@ -64,6 +64,7 @@ class DolphinBle : public Component {
   void set_day_time_option(uint8_t day, const std::string &value);
   void set_day_mode_option(uint8_t day, const std::string &value);
   void send_weekly_schedule_();
+  void parse_weekly_timer_response_(const std::vector<uint8_t> &frame);
 
  protected:
   enum NumericSensorKind : uint8_t {
@@ -93,8 +94,7 @@ class DolphinBle : public Component {
     TEXT_QUICK_FEATURES = 7,
     TEXT_MU_SW_VERSION = 8,
     TEXT_ACTIVE_FAULT = 9,
-    TEXT_WEEKLY_SCHEDULE = 10,
-    TEXT_DELAY_TIMER = 11,
+    TEXT_DELAY_TIMER = 10,
   };
 
   static DolphinBle *instance_;
@@ -234,6 +234,7 @@ class DolphinBle : public Component {
   uint8_t day_hour_[7]{9, 9, 9, 9, 9, 9, 9};
   uint8_t day_minute_[7]{0, 0, 0, 0, 0, 0, 0};
   uint8_t day_mode_[7]{1, 1, 1, 1, 1, 1, 1};
+  uint8_t day_id_val_[7]{1, 2, 3, 4, 5, 6, 7};
 };
 
 class DolphinBleButton : public button::Button {

@@ -88,10 +88,6 @@ text_sensor:
     name: Active Fault
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
-    kind: weekly_schedule
-    name: Weekly Schedule
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
     kind: delay_timer
     name: Delay Timer
 
@@ -179,74 +175,74 @@ select:
   # Day Modes
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
+    kind: sunday_mode
+    name: Scheduled Mode (0 Sun)
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
     kind: monday_mode
-    name: Monday Cleaning Mode
+    name: Scheduled Mode (1 Mon)
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: tuesday_mode
-    name: Tuesday Cleaning Mode
+    name: Scheduled Mode (2 Tue)
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: wednesday_mode
-    name: Wednesday Cleaning Mode
+    name: Scheduled Mode (3 Wed)
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: thursday_mode
-    name: Thursday Cleaning Mode
+    name: Scheduled Mode (4 Thu)
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: friday_mode
-    name: Friday Cleaning Mode
+    name: Scheduled Mode (5 Fri)
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: saturday_mode
-    name: Saturday Cleaning Mode
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: sunday_mode
-    name: Sunday Cleaning Mode
+    name: Scheduled Mode (6 Sat)
 
 switch:
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: weekly_repeat
-    name: Weekly Schedule Repeat
+    name: Schedule Repeat
 
 text:
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
+    kind: sunday_time
+    name: Scheduled Time (0 Sun)
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
     kind: monday_time
-    name: Monday Cleaning Time
+    name: Scheduled Time (1 Mon)
     mode: text
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: tuesday_time
-    name: Tuesday Cleaning Time
+    name: Scheduled Time (2 Tue)
     mode: text
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: wednesday_time
-    name: Wednesday Cleaning Time
+    name: Scheduled Time (3 Wed)
     mode: text
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: thursday_time
-    name: Thursday Cleaning Time
+    name: Scheduled Time (4 Thu)
     mode: text
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: friday_time
-    name: Friday Cleaning Time
+    name: Scheduled Time (5 Fri)
     mode: text
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: saturday_time
-    name: Saturday Cleaning Time
-    mode: text
-  - platform: dolphin_ble
-    dolphin_ble_id: dolphin_bridge
-    kind: sunday_time
-    name: Sunday Cleaning Time
+    name: Scheduled Time (6 Sat)
     mode: text
 
 number:
