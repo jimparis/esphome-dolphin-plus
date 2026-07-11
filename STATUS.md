@@ -5,7 +5,7 @@ Current status of the ESPHome Maytronics Dolphin BLE integration.
 ## Working Features
 
 - RTC synchronization sends a four-byte big-endian Unix timestamp to `FFF9` with opcode `0x09` on connection and hourly thereafter.
-- MU telemetry publishes PCB runtime, impeller runtime, boot count, incomplete cycles, software version, LED state, and related fields.
+- MU telemetry publishes PCB runtime, impeller runtime, boot count, incomplete cycles, software version, and packed LED state. It is refreshed every 30 seconds after connection.
 - PWS capabilities are decoded, including in-water and cellular support.
 - The cleaning-mode select no longer emits the ESPHome `Invalid option none` warning.
 - The custom LED light supports on/off, brightness from 0-100%, and the `Blinking`, `Constant`, and `Disco` effects.
@@ -17,7 +17,7 @@ All response payloads described here begin with a one-byte response ACK. The doc
 
 - `system_status`: data bytes 0-3 are robot state, PWS state, filter state, and active cleaning mode. Data bytes 4-5 are the cycle type/time field, bytes 6-9 are device uptime, bytes 10-13 are the UTC cycle start time, and bytes 30-51 contain the cleaning-duration estimate table. Multi-byte status values are big-endian.
 - `get_sm_data`: timezone is at data bytes 63-64; quick features at byte 65; weekly schedule at bytes 72-107; start delay at bytes 108-113; SSID at bytes 118-150; and configured cycle times at bytes 217-236.
-- `get_mu_data`: robot type is at bytes 132-133; flash counter at 134-137; cycle time at 138-139; PCB runtime at 140-142; impeller runtime at 143-145; turn-on count at 146-147; incomplete cycles at 148-149; LED state at 157; clean mode at 167; and climb period at 170. The multi-byte MU fields are little-endian.
+- `get_mu_data`: robot type is at bytes 132-133; flash counter at 134-137; cycle time at 138-139; PCB runtime at 140-142; impeller runtime at 143-145; turn-on count at 146-147; incomplete cycles at 148-149; packed LED state at 155; clean mode at 167; and climb period at 170. The multi-byte MU fields are little-endian.
 
 ## Device Observations
 
@@ -64,6 +64,10 @@ Raw filter value `0x66` is a not-available indication rather than 102 percent. T
 ### In-water status
 
 The reference unit does not currently provide a usable in-water measurement. If the capability is absent, temperature polling is suppressed and the entity remains `NA`.
+
+### LED readback
+
+Raw MU payload byte 156 (data byte 155) is a packed LED state: bits 3-7 hold intensity in 5% increments, bit 0 selects Disco, bit 1 selects Constant, and neither mode bit selects Blinking. A live `0xa2` value decoded to 100% Constant while the physical LED was solid blue, confirming the mapping. The previously used data byte 157 is not the LED field.
 
 ## Future Work
 

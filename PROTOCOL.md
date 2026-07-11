@@ -372,7 +372,7 @@ Device parameters, diagnostics, and sensors are requested as structured blocks.
   - **Bytes 148 - 149**: Not Completed Cycle Counter (2-byte Little-Endian Short).
   - **Byte 152**: Robot Software Version Major.
   - **Bytes 153 - 154**: Robot Software Version Minor.
-  - **Byte 157**: Active LEDs configuration.
+  - **Byte 155**: Packed active LED configuration: bits 3-7 are intensity in 5% increments; bit 0 is Disco; bit 1 is Constant; neither mode bit is Blinking. The LED is enabled when decoded intensity is nonzero.
   - **Byte 167**: Current Clean Mode.
   - **Byte 170**: Wall climbing period config.
 

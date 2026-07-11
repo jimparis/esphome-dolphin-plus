@@ -272,6 +272,7 @@ void DolphinBle::on_gattc_event_(esp_gattc_cb_event_t event, esp_gatt_if_t gattc
       this->metadata_step_ = 0;
       this->last_metadata_poll_ = 0;
       this->last_status_poll_ = 0;
+      this->last_mu_poll_ = 0;
       this->last_temp_poll_ = 0;
       this->rx_text_buffer_.clear();
       this->remote_service_start_ = 0;
@@ -326,7 +327,14 @@ void DolphinBle::handle_polling_() {
     this->last_status_poll_ = now;
   }
 
-  // 3. Poll water temperature sensor every 30 seconds (if capability is supported and sensor is registered)
+  // 3. MU includes live runtime counters and is also the only known LED
+  // readback candidate, so it must not be treated as connection-only data.
+  if (this->last_mu_poll_ == 0 || now - this->last_mu_poll_ >= 30000) {
+    this->send_local_notification_text_("03:ab03fffd0100030100ff03ae");
+    this->last_mu_poll_ = now;
+  }
+
+  // 4. Poll water temperature sensor every 30 seconds (if capability is supported and sensor is registered)
   if (this->in_water_capable_ && this->numeric_sensors_[NUMERIC_TEMPERATURE] != nullptr) {
     if (this->last_temp_poll_ == 0 || now - this->last_temp_poll_ >= 30000) {
       this->send_local_notification_text_("03:ab03fff809000002ae");
@@ -334,7 +342,7 @@ void DolphinBle::handle_polling_() {
     }
   }
 
-  // 4. Periodically sync RTC time (every hour)
+  // 5. Periodically sync RTC time (every hour)
   if (this->time_id_ != nullptr) {
     if (this->last_rtc_sync_ == 0 || now - this->last_rtc_sync_ >= 3600000) {
       auto rtc_now = this->time_id_->now();
@@ -520,6 +528,9 @@ void DolphinBle::parse_robot_text_frame_(const std::vector<uint8_t> &frame) {
   if (dest == 0xFFFD && opcode == 0x01) {
     if (payload_len >= 160) {
       ESP_LOGI(TAG, "MU payload bytes 130-160: %s", this->format_hex_(payload + 130, 30).c_str());
+      ESP_LOGI(TAG, "MU LED window: raw[156]=0x%02X raw[157]=0x%02X raw[158]=0x%02X "
+                    "(data[155], data[156], data[157])",
+               payload[156], payload[157], payload[158]);
     }
     this->publish_mu_data_from_frame_(frame);
     return;
@@ -1116,26 +1127,28 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
     std::snprintf(ver_buf, sizeof(ver_buf), "%d.%d", major, minor);
     this->publish_text_(TEXT_MU_SW_VERSION, ver_buf);
 
-    // Parse active LED configuration from data byte 157.
-    uint8_t led_val = payload[157 + D];
-    ESP_LOGD(TAG, "Telemetry LED status byte (data offset 157): 0x%02X", led_val);
-    if (this->led_light_ != nullptr && led_val != 0xff) {
-      bool led_on = (led_val != 0);
-      std::string led_effect = "None";
-      if (led_val == 1) {
-        led_effect = "Blinking";
-      } else if (led_val == 3) {
-        led_effect = "Disco";
-      }
+    // Packed LED configuration at raw payload byte 156 (data byte 155):
+    // bits 3-7 are intensity in 5% increments, bit 0 is Disco, and bit 1
+    // is Constant. No mode bit means Blinking.
+    uint8_t led_packed = payload[156];
+    uint8_t led_intensity = static_cast<uint8_t>(((led_packed >> 3) & 0x1f) * 5);
+    bool led_on = led_intensity != 0;
+    std::string led_effect = "Blinking";
+    if (led_packed & 0x01) {
+      led_effect = "Disco";
+    } else if (led_packed & 0x02) {
+      led_effect = "Constant";
+    }
 
+    ESP_LOGD(TAG, "Telemetry LED packed byte raw[156]=0x%02X enabled=%d intensity=%u mode=%s",
+             led_packed, led_on, led_intensity, led_effect.c_str());
+    if (this->led_light_ != nullptr) {
       this->is_telemetry_sync_ = true;
       auto call = this->led_light_->make_call();
       call.set_state(led_on);
+      call.set_brightness(static_cast<float>(led_intensity) / 100.0f);
       if (led_on) {
         call.set_effect(led_effect);
-        if (this->led_light_->remote_values.get_brightness() == 0.0f) {
-          call.set_brightness(1.0f);
-        }
       }
       call.perform();
       this->is_telemetry_sync_ = false;

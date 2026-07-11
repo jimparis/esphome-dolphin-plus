@@ -181,6 +181,10 @@ light:
           update_interval: 10s
           lambda: ""
       - lambda:
+          name: "Constant"
+          update_interval: 10s
+          lambda: ""
+      - lambda:
           name: "Disco"
           update_interval: 10s
           lambda: ""

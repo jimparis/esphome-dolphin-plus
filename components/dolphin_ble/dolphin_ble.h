@@ -184,6 +184,7 @@ class DolphinBle : public Component {
   uint8_t metadata_step_{0};
   uint32_t last_metadata_poll_{0};
   uint32_t last_status_poll_{0};
+  uint32_t last_mu_poll_{0};
   uint32_t last_temp_poll_{0};
   uint32_t last_rtc_sync_{0};
   time::RealTimeClock *time_id_{nullptr};
