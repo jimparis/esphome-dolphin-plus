@@ -2,18 +2,17 @@ substitutions:
   device_name: dolphin-ble
   friendly_name: Dolphin BLE
   dolphin_mac: !secret dolphin_mac
-  dolphin_name_filter: !secret dolphin_name_filter
   dolphin_temperature_supported: "false"
 
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
   project:
-    name: jimsh.dolphin_ble
+    name: jim.dolphin_ble
     version: "0.1.0"
 
 dashboard_import:
-  package_import_url: github://jimsh/esphome-dolphin-plus/dolphin_ble.import.yaml@main
+  package_import_url: github://jimparis/esphome-dolphin-plus/dolphin_ble.import.yaml@master
   import_full_config: false
 
 wifi:

@@ -1,5 +1,4 @@
 defaults:
-  dolphin_name_filter: ""
   dolphin_temperature_supported: "false"
 
 esp32:
@@ -37,14 +36,13 @@ bluetooth_proxy:
 dolphin_ble:
   id: dolphin_bridge
   mac_address: ${dolphin_mac}
-  name_filter: ${dolphin_name_filter}
-  time_id: sntp_time
+  time_id: homeassistant_time
   # This detail is profile-specific and may differ across robot models or firmware.
   temperature_supported: ${dolphin_temperature_supported}
 
 time:
-  - platform: sntp
-    id: sntp_time
+  - platform: homeassistant
+    id: homeassistant_time
 
 text_sensor:
   - platform: dolphin_ble

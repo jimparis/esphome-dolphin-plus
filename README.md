@@ -8,14 +8,15 @@ the power supply over BLE and exposes robot state, cycle timing, cleaning
 controls, scheduling controls, manual drive, filter status, runtime counters,
 and LED controls to Home Assistant through ESPHome.
 
-This is not an official Maytronics integration.
+This is not an official Maytronics integration. It has been tested with a
+Dolphin Nautilus CC Pro.
 
 ## Current Status
 
 The integration is built around one known Dolphin Plus BLE protocol family. It
 currently supports:
 
-- connection to the power supply BLE service;
+- connection to the power supply BLE service by MAC address;
 - status polling every 2 seconds;
 - motor-unit telemetry polling every 30 seconds;
 - start, stop, pickup, cleaning-mode selection, and filter reset;
@@ -34,31 +35,12 @@ returned a reliable temperature response.
 - `packages/dolphin_ble.yaml`: reusable public ESPHome package. This contains
   the ESP32/BLE setup and all Dolphin entities, but no Wi-Fi, API, OTA, or
   external-component source.
-- `dolphin_ble.import.yaml`: public dashboard-import entrypoint intended to be
-  hosted on GitHub.
-- `dolphin_ble.yaml`: local development overlay. It uses local `components/`
-  and private `secrets.yaml`.
+- `dolphin_ble.import.yaml`: public dashboard-import entrypoint.
+- `dolphin_ble.yaml`: ready-to-customize local YAML for flashing.
 - `PROTOCOL.md`: protocol notes for the implemented packet behavior.
 - `secrets.example.yaml`: example local secrets file.
 
-## Public GitHub URLs
-
-The public import files currently assume this repository will be published at:
-
-```text
-https://github.com/jimsh/esphome-dolphin-plus
-```
-
-If the repository is published somewhere else, update these references before
-publishing:
-
-- `dashboard_import.package_import_url` in `dolphin_ble.import.yaml`
-- `dashboard_import.package_import_url` in `dolphin_ble.yaml`
-- `external_components.source` in `dolphin_ble.import.yaml`
-- `packages.dolphin_ble.url` in `dolphin_ble.import.yaml`
-- the README examples below
-
-## Quick Start for Users
+## Quick Start
 
 You need:
 
@@ -67,133 +49,55 @@ You need:
 - the BLE MAC address of your Dolphin power supply;
 - Wi-Fi credentials for the ESP32.
 
-The BLE MAC can be found with a BLE scanner, ESPHome BLE tracker logs, or Home
-Assistant's Bluetooth diagnostics. The optional `dolphin_name_filter` can be
-left blank unless you want an extra advertised-name check.
+The BLE MAC can often be found on a sticker on the power supply. It can also be
+found with a BLE scanner or Home Assistant's Bluetooth diagnostics.
 
-### Option 1: Compile a Local YAML
+1. Clone this repository:
 
-Create a new ESPHome YAML and adjust the substitutions and network settings:
+   ```sh
+   git clone https://github.com/jimparis/esphome-dolphin-plus.git
+   cd esphome-dolphin-plus
+   ```
 
-```yaml
-substitutions:
-  device_name: dolphin-ble
-  friendly_name: Dolphin BLE
-  dolphin_mac: "AA:BB:CC:DD:EE:FF"
-  dolphin_name_filter: ""
-  dolphin_temperature_supported: "false"
-
-esphome:
-  name: ${device_name}
-  friendly_name: ${friendly_name}
-  project:
-    name: jimsh.dolphin_ble
-    version: "0.1.0"
-
-dashboard_import:
-  package_import_url: github://jimsh/esphome-dolphin-plus/dolphin_ble.import.yaml@main
-  import_full_config: false
-
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-
-api:
-  encryption:
-    key: !secret api_encryption_key
-
-ota:
-  - platform: esphome
-    password: !secret ota_password
-
-external_components:
-  - source: github://jimsh/esphome-dolphin-plus@main
-    components:
-      - dolphin_ble
-
-packages:
-  dolphin_ble:
-    url: https://github.com/jimsh/esphome-dolphin-plus
-    files:
-      - packages/dolphin_ble.yaml
-    ref: main
-    refresh: 1d
-```
-
-Then compile and flash it from ESPHome Dashboard or the CLI.
-
-After the device boots on Wi-Fi, ESPHome Dashboard should offer to adopt/take
-control of it. Adoption works because the firmware includes `project` metadata
-and `dashboard_import`.
-
-### Option 2: Flash the Public Import YAML
-
-`dolphin_ble.import.yaml` is the public dashboard-import entrypoint. It contains
-fallback provisioning:
-
-- Wi-Fi fallback AP with captive portal;
-- Improv over serial;
-- ESP32 Improv over BLE;
-- API and OTA enabled without private credentials.
-
-Before compiling it yourself, set:
-
-```yaml
-substitutions:
-  dolphin_mac: "AA:BB:CC:DD:EE:FF"
-  dolphin_name_filter: ""
-```
-
-If you flash it without Wi-Fi credentials, provision Wi-Fi through the fallback
-AP or Improv, then adopt the device in ESPHome Dashboard and add your permanent
-Wi-Fi/API/OTA settings there.
-
-## Local Development
-
-For development in this repository:
-
-1. Copy the example secrets file:
+2. Copy and edit the example secrets file:
 
    ```sh
    cp secrets.example.yaml secrets.yaml
    ```
 
-2. Edit `secrets.yaml` with your Wi-Fi, API, OTA, and Dolphin BLE details.
+   Set your Wi-Fi, API, OTA, and `dolphin_mac` values.
 
-3. Build:
-
-   ```sh
-   make build
-   ```
-
-4. Flash over USB:
+3. Flash `dolphin_ble.yaml` with ESPHome Dashboard or the ESPHome CLI:
 
    ```sh
    make flash
    ```
 
-   Set another serial port with `make flash PORT=/dev/ttyACM0`.
-
-5. Or run OTA after the first flash:
+   The default serial port is `/dev/ttyUSB0`. To use another port:
 
    ```sh
-   uv run esphome upload dolphin_ble.yaml
+   make flash PORT=/dev/ttyACM0
    ```
 
-The local `dolphin_ble.yaml` imports `packages/dolphin_ble.yaml` but uses
-`external_components` from the checked-out `components/` directory, so local
-source edits are compiled immediately.
+After the device boots on Wi-Fi, ESPHome Dashboard should offer to adopt/take
+control of it. Adoption works because the firmware includes ESPHome `project`
+metadata and `dashboard_import`.
+
+For later updates over the network:
+
+```sh
+make ota
+```
 
 ## Configuration Knobs
 
-Use substitutions in the top-level YAML:
+Use substitutions in `dolphin_ble.yaml`:
 
 | Name | Required | Default | Description |
 | --- | --- | --- | --- |
 | `device_name` | No | `dolphin-ble` | ESPHome node name. |
 | `friendly_name` | No | `Dolphin BLE` | Home Assistant display name. |
 | `dolphin_mac` | Yes | none | BLE MAC address of the power supply. |
-| `dolphin_name_filter` | No | empty | Optional advertised-name filter. |
 | `dolphin_temperature_supported` | No | `false` | Enable only after validating temperature support for your model. |
 
 ## Operational Notes
@@ -205,18 +109,18 @@ Use substitutions in the top-level YAML:
   connections through this ESP32 are disabled so they do not compete with the
   Dolphin BLE session.
 - The component synchronizes the power supply RTC on connection and hourly
-  thereafter using ESPHome time.
+  thereafter using Home Assistant time.
 
-## References
+## ESPHome Sharing Flow
 
 This repository uses ESPHome's public sharing flow:
 
-- `dashboard_import.package_import_url` points ESPHome Dashboard at a public
+- `dashboard_import.package_import_url` points ESPHome Dashboard at this public
   package so it can create a minimal adopted config.
 - `packages` pulls the reusable YAML from GitHub.
-- `project` metadata is required for dashboard adoption.
+- `project` metadata is included for dashboard adoption.
 
-See ESPHome's documentation for sharing devices and packages:
+References:
 
 - https://esphome.io/guides/creators/
 - https://esphome.io/components/packages/

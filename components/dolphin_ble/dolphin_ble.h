@@ -40,7 +40,6 @@ class DolphinBle : public Component {
   float get_setup_priority() const override;
 
   void set_mac_address(const std::string &mac) { this->mac_address_ = mac; }
-  void set_name_filter(const std::string &name) { this->name_filter_ = name; }
   void set_time_id(time::RealTimeClock *time_id) { this->time_id_ = time_id; }
   void set_temperature_supported(bool supported) { this->temperature_supported_ = supported; }
 
@@ -178,7 +177,6 @@ class DolphinBle : public Component {
   void publish_cycle_time_remaining_();
 
   std::string mac_address_;
-  std::string name_filter_;
   esp_bd_addr_t remote_bda_{};
 
   esp_bt_uuid_t service_uuid_{};

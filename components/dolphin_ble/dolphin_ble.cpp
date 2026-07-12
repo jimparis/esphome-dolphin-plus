@@ -25,8 +25,7 @@ DolphinBle *DolphinBle::instance_ = nullptr;
 
 void DolphinBle::setup() {
   instance_ = this;
-  ESP_LOGI(TAG, "Setting up Dolphin BLE bridge for %s (%s)", this->mac_address_.c_str(),
-           this->name_filter_.empty() ? "no name filter" : this->name_filter_.c_str());
+  ESP_LOGI(TAG, "Setting up Dolphin BLE bridge for %s", this->mac_address_.c_str());
 
   this->parsed_mac_ = this->parse_mac_();
   if (!this->parsed_mac_) {
