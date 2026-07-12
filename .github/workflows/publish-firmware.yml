@@ -27,4 +27,3 @@ jobs:
       files: |
         dolphin_ble.yaml
       esphome-version: 2026.6.5
-      combined-name: dolphin_ble
