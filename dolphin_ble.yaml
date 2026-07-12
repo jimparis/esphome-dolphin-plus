@@ -12,6 +12,11 @@ esphome:
   name_add_mac_suffix: true
 
 wifi:
+  ap:
+
+improv_serial:
+
+captive_portal:
 
 api:
 
