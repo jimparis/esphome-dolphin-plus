@@ -1,11 +1,22 @@
 name: Publish Firmware
 
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - master
+    paths:
+      - '*.yaml'
+      - 'components/**'
+      - 'packages/**'
+      - 'static/**'
+      - '.github/workflows/publish-firmware.yml'
+      - '.github/workflows/publish-pages.yml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-firmware:
@@ -17,15 +28,3 @@ jobs:
         dolphin_ble.yaml
       esphome-version: 2026.6.5
       combined-name: dolphin_ble
-
-      release-summary: ${{ github.event.release.body }}
-      release-url: ${{ github.event.release.html_url }}
-      release-version: ${{ github.event.release.tag_name }}
-
-  upload-to-release:
-    name: Upload to Release
-    uses: esphome/workflows/.github/workflows/upload-to-gh-release.yml@025a1e6255610c498ed590403b7e510b69e474df  # 2026.4.1
-    needs:
-      - build-firmware
-    with:
-      version: ${{ github.event.release.tag_name }}
