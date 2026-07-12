@@ -2,4 +2,6 @@
 .venv/
 __pycache__/
 *.pyc
+*.apk
+REVERSED-INTERNALS.md
 secrets.yaml

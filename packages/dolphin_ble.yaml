@@ -1,0 +1,284 @@
+defaults:
+  dolphin_name_filter: ""
+  dolphin_temperature_supported: "false"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    advanced:
+      # Smaller binary, more RAM.
+      minimum_chip_revision: "3.1"
+      sram1_as_iram: true
+    sdkconfig_options:
+      CONFIG_BT_GATTC_ENABLE: y
+      CONFIG_BT_GATTS_ENABLE: y
+
+logger:
+  level: DEBUG
+
+web_server:
+
+esp32_ble:
+  io_capability: none
+
+# Relay BLE advertisements to Home Assistant without asking devices for scan-response data.
+# If an advertisement-only device is missing fields, try setting this active scan flag to true
+# before enabling active GATT proxying below.
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+
+bluetooth_proxy:
+  # Keep outbound Home Assistant GATT connections off this node so they do not
+  # compete with the Dolphin BLE session. Advertisement relay still works.
+  active: false
+
+dolphin_ble:
+  id: dolphin_bridge
+  mac_address: ${dolphin_mac}
+  name_filter: ${dolphin_name_filter}
+  time_id: sntp_time
+  # This detail is profile-specific and may differ across robot models or firmware.
+  temperature_supported: ${dolphin_temperature_supported}
+
+time:
+  - platform: sntp
+    id: sntp_time
+
+text_sensor:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: robot_state
+    name: Robot State
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: pws_state
+    name: PWS State
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: in_water_status
+    name: In Water Status
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: pws_features
+    name: PWS Features
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: filter_status
+    name: Filter Status
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: wifi_ssid
+    name: WiFi SSID
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: quick_features
+    name: Quick Features
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_sw_version
+    name: MU Software Version
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: active_fault
+    name: Active Fault
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: delay_timer
+    name: Delay Timer
+
+sensor:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: filter_state
+    name: Filter Clog Level
+    unit_of_measurement: "%"
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cycle_duration
+    name: Configured Cycle Duration
+    unit_of_measurement: "s"
+    device_class: duration
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cycle_start_time
+    name: Cycle Start Time
+    device_class: timestamp
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cycle_time_remaining
+    name: Cycle Time Remaining
+    unit_of_measurement: "s"
+    device_class: duration
+#  - platform: dolphin_ble
+#    dolphin_ble_id: dolphin_bridge
+#    kind: temperature
+#    name: Water Temperature
+#    unit_of_measurement: "°C"
+#    device_class: temperature
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: robot_type
+    name: Robot Type ID
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: turn_on_count
+    name: Total Boot Count
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_flash_write_counter
+    name: MU Flash Write Counter
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_pcb_runtime
+    name: MU PCB Runtime
+    unit_of_measurement: "h"
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_impeller_runtime
+    name: MU Impeller Runtime
+    unit_of_measurement: "h"
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_not_completed_cycles
+    name: MU Not Completed Cycles
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: mu_climb_period
+    name: MU Climb Period
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: sm_timezone
+    name: SM Timezone Offset
+
+button:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: start_cleaning
+    name: Start Cleaning
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: stop_cleaning
+    name: Stop Cleaning
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: pickup_mode
+    name: Pickup Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: refresh_status
+    name: Refresh Status
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: reset_filter
+    name: Reset Filter Indicator
+
+select:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: cleaning_mode
+    name: Cleaning Mode
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: manual_drive_direction
+    name: Manual Drive Direction
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: sunday_mode
+    name: Scheduled Mode (0 Sun)
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: monday_mode
+    name: Scheduled Mode (1 Mon)
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: tuesday_mode
+    name: Scheduled Mode (2 Tue)
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: wednesday_mode
+    name: Scheduled Mode (3 Wed)
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: thursday_mode
+    name: Scheduled Mode (4 Thu)
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: friday_mode
+    name: Scheduled Mode (5 Fri)
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: saturday_mode
+    name: Scheduled Mode (6 Sat)
+
+switch:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: weekly_repeat
+    name: Schedule Repeat
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: protocol_debug_logging
+    name: Protocol Debug Logging
+
+text:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: sunday_time
+    name: Scheduled Time (0 Sun)
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: monday_time
+    name: Scheduled Time (1 Mon)
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: tuesday_time
+    name: Scheduled Time (2 Tue)
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: wednesday_time
+    name: Scheduled Time (3 Wed)
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: thursday_time
+    name: Scheduled Time (4 Thu)
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: friday_time
+    name: Scheduled Time (5 Fri)
+    mode: text
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: saturday_time
+    name: Scheduled Time (6 Sat)
+    mode: text
+
+number:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    name: Manual Drive Speed
+
+light:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    name: LED Light
+    default_transition_length: 0s
+    effects:
+      - lambda:
+          name: "Blinking"
+          update_interval: 10s
+          lambda: ""
+      - lambda:
+          name: "Constant"
+          update_interval: 10s
+          lambda: ""
+      - lambda:
+          name: "Disco"
+          update_interval: 10s
+          lambda: ""
