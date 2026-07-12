@@ -1,4 +1,5 @@
 defaults:
+  dolphin_mac: ""
   dolphin_temperature_supported: "false"
 
 esp32:
@@ -45,6 +46,10 @@ time:
     id: homeassistant_time
 
 text_sensor:
+  - platform: dolphin_ble
+    dolphin_ble_id: dolphin_bridge
+    kind: power_supply_mac
+    name: Power Supply MAC
   - platform: dolphin_ble
     dolphin_ble_id: dolphin_bridge
     kind: robot_state

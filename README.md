@@ -6,7 +6,8 @@ power supply over BLE.
 This project runs on an ESP32 near the pool power supply. The ESP32 connects to
 the power supply over BLE and exposes robot state, cycle timing, cleaning
 controls, scheduling controls, manual drive, filter status, runtime counters,
-and LED controls to Home Assistant through ESPHome.
+LED controls, and the resolved power-supply MAC address to Home Assistant
+through ESPHome.
 
 This is not an official Maytronics integration. It has been tested with a
 Dolphin Nautilus CC Pro.
@@ -46,11 +47,14 @@ You need:
 
 - an ESP32 board supported by ESPHome;
 - ESPHome Dashboard or ESPHome CLI;
-- the BLE MAC address of your Dolphin power supply;
 - Wi-Fi credentials for the ESP32.
 
-The BLE MAC can often be found on a sticker on the power supply. It can also be
-found with a BLE scanner or Home Assistant's Bluetooth diagnostics.
+The BLE MAC is optional. By default, the component auto-discovers a nearby
+Maytronics power supply that advertises the Dolphin BLE service and uses a known
+Maytronics address range. If multiple matching power supplies are nearby, set
+`dolphin_mac` explicitly. The BLE MAC can often be found on a sticker on the
+power supply. It can also be found with a BLE scanner or Home Assistant's
+Bluetooth diagnostics.
 
 1. Clone this repository:
 
@@ -65,7 +69,8 @@ found with a BLE scanner or Home Assistant's Bluetooth diagnostics.
    cp secrets.example.yaml secrets.yaml
    ```
 
-   Set your Wi-Fi, API, OTA, and `dolphin_mac` values.
+   Set your Wi-Fi values. Set `dolphin_mac` only if you want to pin the
+   integration to one power supply instead of using auto-discovery.
 
 3. Flash `dolphin_ble.yaml` with ESPHome Dashboard or the ESPHome CLI:
 
@@ -97,12 +102,15 @@ Use substitutions in `dolphin_ble.yaml`:
 | --- | --- | --- | --- |
 | `device_name` | No | `dolphin-ble` | ESPHome node name. |
 | `friendly_name` | No | `Dolphin BLE` | Home Assistant display name. |
-| `dolphin_mac` | Yes | none | BLE MAC address of the power supply. |
+| `dolphin_mac` | No | empty | Optional BLE MAC address of the power supply. Leave empty for auto-discovery by Dolphin service UUID and Maytronics address range. |
 | `dolphin_temperature_supported` | No | `false` | Enable only after validating temperature support for your model. |
 
 ## Operational Notes
 
 - Keep the ESP32 close enough to the power supply for a stable BLE connection.
+- Auto-discovery matches the advertised Dolphin service UUID plus these
+  Maytronics address ranges: `30:09:F9:70:00:00/28`,
+  `70:B3:D5:90:E0:00/36`, and `AC:74:C4/24`.
 - `Protocol Debug Logging` is exposed as a switch. Leave it off for normal use;
   enable it only when collecting packet-level diagnostics.
 - Passive BLE advertisement relay is enabled. Home Assistant active GATT proxy
@@ -110,18 +118,3 @@ Use substitutions in `dolphin_ble.yaml`:
   Dolphin BLE session.
 - The component synchronizes the power supply RTC on connection and hourly
   thereafter using Home Assistant time.
-
-## ESPHome Sharing Flow
-
-This repository uses ESPHome's public sharing flow:
-
-- `dashboard_import.package_import_url` points ESPHome Dashboard at this public
-  package so it can create a minimal adopted config.
-- `packages` pulls the reusable YAML from GitHub.
-- `project` metadata is included for dashboard adoption.
-
-References:
-
-- https://esphome.io/guides/creators/
-- https://esphome.io/components/packages/
-- https://esphome.io/components/external_components/

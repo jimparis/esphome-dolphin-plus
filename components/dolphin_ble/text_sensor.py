@@ -20,6 +20,7 @@ KINDS = {
     "mu_sw_version": 8,
     "active_fault": 9,
     "delay_timer": 10,
+    "power_supply_mac": 11,
 }
 
 CONFIG_SCHEMA = text_sensor.text_sensor_schema().extend(
@@ -42,5 +43,6 @@ async def to_code(config):
         "mu_sw_version",
         "active_fault",
         "delay_timer",
+        "power_supply_mac",
     ):
         cg.add(var.publish_state("NA"))

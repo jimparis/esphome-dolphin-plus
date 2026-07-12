@@ -1,9 +1,9 @@
 substitutions:
   device_name: dolphin-ble
   friendly_name: Dolphin BLE
-  # Set this to your Dolphin power supply BLE MAC before compiling, or adopt the
-  # device in ESPHome Dashboard and edit it there.
-  dolphin_mac: "00:00:00:00:00:00"
+  # Optional. Leave blank to auto-discover a Maytronics power supply advertising
+  # the Dolphin BLE service; set this if multiple matching devices are nearby.
+  dolphin_mac: ""
   dolphin_temperature_supported: "false"
 
 esphome:
@@ -12,7 +12,7 @@ esphome:
   name_add_mac_suffix: true
   project:
     name: jim.dolphin_ble
-    version: "0.1.0"
+    version: "1.0"
 
 dashboard_import:
   package_import_url: github://jimparis/esphome-dolphin-plus/dolphin_ble.import.yaml@master

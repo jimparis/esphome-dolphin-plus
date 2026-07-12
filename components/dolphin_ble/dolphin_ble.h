@@ -20,6 +20,7 @@
 #include "esphome/components/light/light_state.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/text/text.h"
+#include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
 
 #include "esp_gap_ble_api.h"
 #include "esp_gatt_common_api.h"
@@ -30,14 +31,17 @@
 namespace esphome {
 namespace dolphin_ble {
 
-class DolphinBle : public Component {
+class DolphinBle : public Component, public esp32_ble_tracker::ESPBTDeviceListener {
  public:
   static constexpr size_t NUM_NUMERIC_SENSORS = 14;
-  static constexpr size_t NUM_TEXT_SENSORS = 11;
+  static constexpr size_t NUM_TEXT_SENSORS = 12;
 
   void setup() override;
   void loop() override;
   float get_setup_priority() const override;
+#ifdef USE_ESP32_BLE_DEVICE
+  bool parse_device(const esp32_ble_tracker::ESPBTDevice &device) override;
+#endif
 
   void set_mac_address(const std::string &mac) { this->mac_address_ = mac; }
   void set_time_id(time::RealTimeClock *time_id) { this->time_id_ = time_id; }
@@ -101,6 +105,7 @@ class DolphinBle : public Component {
     TEXT_MU_SW_VERSION = 8,
     TEXT_ACTIVE_FAULT = 9,
     TEXT_DELAY_TIMER = 10,
+    TEXT_POWER_SUPPLY_MAC = 11,
   };
 
   static DolphinBle *instance_;
@@ -116,6 +121,11 @@ class DolphinBle : public Component {
                        esp_ble_gattc_cb_param_t *param);
 
   bool parse_mac_();
+  bool has_static_mac_() const;
+  bool is_maytronics_address_(const uint8_t *address) const;
+  bool has_dolphin_service_(const esp32_ble_tracker::ESPBTDevice &device) const;
+  void set_remote_address_(const uint8_t *address, esp_ble_addr_type_t address_type);
+  void publish_remote_mac_();
   void maybe_connect_();
   void maybe_start_gatt_();
   void create_local_server_(esp_gatt_if_t gatts_if);
@@ -178,12 +188,15 @@ class DolphinBle : public Component {
 
   std::string mac_address_;
   esp_bd_addr_t remote_bda_{};
+  esp_ble_addr_type_t remote_addr_type_{BLE_ADDR_TYPE_PUBLIC};
 
   esp_bt_uuid_t service_uuid_{};
   esp_bt_uuid_t char_uuid_{};
   esp_bt_uuid_t cccd_uuid_{};
 
-  bool parsed_mac_{false};
+  bool remote_address_ready_{false};
+  bool auto_discovery_enabled_{false};
+  bool logged_waiting_for_discovery_{false};
   bool gatt_setup_started_{false};
   bool server_ready_{false};
   bool connect_started_{false};

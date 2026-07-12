@@ -25,13 +25,19 @@ DolphinBle *DolphinBle::instance_ = nullptr;
 
 void DolphinBle::setup() {
   instance_ = this;
-  ESP_LOGI(TAG, "Setting up Dolphin BLE bridge for %s", this->mac_address_.c_str());
 
-  this->parsed_mac_ = this->parse_mac_();
-  if (!this->parsed_mac_) {
-    ESP_LOGE(TAG, "Invalid MAC address: %s", this->mac_address_.c_str());
-    this->mark_failed();
-    return;
+  if (this->has_static_mac_()) {
+    ESP_LOGI(TAG, "Setting up Dolphin BLE bridge for %s", this->mac_address_.c_str());
+    if (!this->parse_mac_()) {
+      ESP_LOGE(TAG, "Invalid MAC address: %s", this->mac_address_.c_str());
+      this->mark_failed();
+      return;
+    }
+    this->remote_address_ready_ = true;
+    this->publish_remote_mac_();
+  } else {
+    ESP_LOGI(TAG, "Setting up Dolphin BLE bridge with automatic Maytronics discovery");
+    this->auto_discovery_enabled_ = true;
   }
 
   if (!uuid_from_string_(IOT_SERVICE_UUID, &this->service_uuid_) ||
@@ -82,6 +88,26 @@ void DolphinBle::loop() {
 }
 
 float DolphinBle::get_setup_priority() const { return setup_priority::DATA; }
+
+#ifdef USE_ESP32_BLE_DEVICE
+bool DolphinBle::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
+  if (!this->auto_discovery_enabled_ || this->remote_address_ready_ || this->client_connected_ ||
+      this->connect_started_) {
+    return false;
+  }
+
+  const uint8_t *address = device.address();
+  if (!this->is_maytronics_address_(address) || !this->has_dolphin_service_(device)) {
+    return false;
+  }
+
+  this->set_remote_address_(address, device.get_address_type());
+  this->remote_address_ready_ = true;
+  ESP_LOGI(TAG, "Discovered Maytronics Dolphin power supply at %s", device.address_str().c_str());
+  this->publish_remote_mac_();
+  return true;
+}
+#endif
 
 void DolphinBle::maybe_start_gatt_() {
   if (this->gatt_setup_started_)
@@ -707,15 +733,69 @@ bool DolphinBle::parse_mac_() {
   return true;
 }
 
+bool DolphinBle::has_static_mac_() const {
+  return !this->mac_address_.empty() && this->mac_address_ != "00:00:00:00:00:00";
+}
+
+bool DolphinBle::is_maytronics_address_(const uint8_t *address) const {
+  // 30:09:F9:70:00:00/28
+  if (address[0] == 0x30 && address[1] == 0x09 && address[2] == 0xF9 && (address[3] & 0xF0) == 0x70) {
+    return true;
+  }
+
+  // 70:B3:D5:90:E0:00/36
+  if (address[0] == 0x70 && address[1] == 0xB3 && address[2] == 0xD5 && address[3] == 0x90 &&
+      (address[4] & 0xF0) == 0xE0) {
+    return true;
+  }
+
+  // AC:74:C4/24
+  return address[0] == 0xAC && address[1] == 0x74 && address[2] == 0xC4;
+}
+
+bool DolphinBle::has_dolphin_service_(const esp32_ble_tracker::ESPBTDevice &device) const {
+#ifdef USE_ESP32_BLE_UUID
+  auto dolphin_uuid = esp32_ble::ESPBTUUID::from_raw(IOT_SERVICE_UUID);
+  for (const auto &uuid : device.get_service_uuids()) {
+    if (uuid == dolphin_uuid) {
+      return true;
+    }
+  }
+#endif
+  return false;
+}
+
+void DolphinBle::set_remote_address_(const uint8_t *address, esp_ble_addr_type_t address_type) {
+  std::memcpy(this->remote_bda_, address, sizeof(this->remote_bda_));
+  this->remote_addr_type_ = address_type;
+}
+
+void DolphinBle::publish_remote_mac_() {
+  if (!this->remote_address_ready_) {
+    return;
+  }
+  char mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+  this->publish_text_(TEXT_POWER_SUPPLY_MAC, format_mac_addr_upper(this->remote_bda_, mac));
+}
+
 void DolphinBle::maybe_connect_() {
-  if (!this->parsed_mac_ || !this->server_ready_ || this->gattc_if_ == ESP_GATT_IF_NONE ||
+  if (!this->remote_address_ready_) {
+    if (this->auto_discovery_enabled_ && !this->logged_waiting_for_discovery_) {
+      ESP_LOGI(TAG, "Waiting for Maytronics Dolphin advertisement");
+      this->logged_waiting_for_discovery_ = true;
+    }
+    return;
+  }
+
+  if (!this->server_ready_ || this->gattc_if_ == ESP_GATT_IF_NONE ||
       this->connect_started_ || this->client_connected_) {
     return;
   }
 
-  ESP_LOGI(TAG, "Opening direct GATT client connection to %s", this->mac_address_.c_str());
+  char mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+  ESP_LOGI(TAG, "Opening direct GATT client connection to %s", format_mac_addr_upper(this->remote_bda_, mac));
   this->connect_started_ = true;
-  esp_err_t err = esp_ble_gattc_open(this->gattc_if_, this->remote_bda_, BLE_ADDR_TYPE_PUBLIC, true);
+  esp_err_t err = esp_ble_gattc_open(this->gattc_if_, this->remote_bda_, this->remote_addr_type_, true);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "esp_ble_gattc_open failed: %s", esp_err_to_name(err));
     this->connect_started_ = false;
