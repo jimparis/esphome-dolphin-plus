@@ -361,14 +361,11 @@ void DolphinBle::handle_polling_() {
     }
   }
 
-  if (this->time_id_ != nullptr) {
-    if (this->last_rtc_sync_ == 0 || now - this->last_rtc_sync_ >= 3600000) {
-      auto rtc_now = this->time_id_->now();
-      if (rtc_now.is_valid()) {
-        this->send_timezone_();
-        this->send_rtc_time_();
-        this->last_rtc_sync_ = now;
-      }
+  if (this->last_rtc_sync_ == 0 || now - this->last_rtc_sync_ >= 3600000) {
+    if (this->get_valid_time_().is_valid()) {
+      this->send_timezone_();
+      this->send_rtc_time_();
+      this->last_rtc_sync_ = now;
     }
   }
 
@@ -381,7 +378,7 @@ void DolphinBle::handle_polling_() {
 
 void DolphinBle::queue_initialization_() {
   ESP_LOGI(TAG, "Queueing robot initialization commands in protocol order");
-  if (this->time_id_ != nullptr && this->time_id_->now().is_valid()) {
+  if (this->get_valid_time_().is_valid()) {
     this->send_timezone_();
     this->send_rtc_time_();
     this->last_rtc_sync_ = millis();
@@ -406,9 +403,7 @@ void DolphinBle::send_timezone_() {
 }
 
 void DolphinBle::send_rtc_time_() {
-  if (this->time_id_ == nullptr)
-    return;
-  auto now = this->time_id_->now();
+  auto now = this->get_valid_time_();
   if (!now.is_valid())
     return;
 
@@ -420,6 +415,25 @@ void DolphinBle::send_rtc_time_() {
   payload[3] = static_cast<uint8_t>(timestamp & 0xFF);
 
   this->send_command_frame_(0x09, 0xFFF9, payload, 4, "RealTimeClock", false);
+}
+
+ESPTime DolphinBle::get_valid_time_() const {
+  if (this->time_id_ != nullptr) {
+    auto now = this->time_id_->now();
+    if (now.is_valid()) {
+      return now;
+    }
+  }
+  for (auto *time_id : this->time_ids_) {
+    if (time_id == nullptr || time_id == this->time_id_) {
+      continue;
+    }
+    auto now = time_id->now();
+    if (now.is_valid()) {
+      return now;
+    }
+  }
+  return ESPTime();
 }
 
 bool DolphinBle::send_local_notification_text_(const std::string &text) {
@@ -1194,12 +1208,12 @@ void DolphinBle::publish_configured_cycle_duration_() {
 void DolphinBle::publish_cycle_time_remaining_() {
   uint32_t duration_seconds = 0;
   if (!this->cycle_active_ || this->current_cycle_start_time_ == 0 ||
-      !this->get_configured_cycle_duration_seconds_(&duration_seconds) || this->time_id_ == nullptr) {
+      !this->get_configured_cycle_duration_seconds_(&duration_seconds)) {
     this->publish_numeric_(NUMERIC_CYCLE_TIME_REMAINING, NAN);
     return;
   }
 
-  auto now = this->time_id_->now();
+  auto now = this->get_valid_time_();
   if (!now.is_valid() || now.timestamp < this->current_cycle_start_time_) {
     this->publish_numeric_(NUMERIC_CYCLE_TIME_REMAINING, NAN);
     return;
@@ -1317,10 +1331,8 @@ void DolphinBle::publish_status_from_frame_(const std::vector<uint8_t> &frame) {
       this->publish_cycle_time_remaining_();
     } else {
       bool too_far_in_future = false;
-      if (this->time_id_ != nullptr) {
-        auto now = this->time_id_->now();
-        too_far_in_future = now.is_valid() && start_time > now.timestamp + 86400UL;
-      }
+      auto now = this->get_valid_time_();
+      too_far_in_future = now.is_valid() && start_time > now.timestamp + 86400UL;
       if (too_far_in_future) {
         this->cycle_active_ = false;
         this->current_cycle_start_time_ = 0;

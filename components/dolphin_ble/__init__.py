@@ -8,6 +8,7 @@ CODEOWNERS = ["@local"]
 DEPENDENCIES = ["esp32_ble_tracker"]
 
 CONF_TIME_ID = "time_id"
+CONF_TIME_IDS = "time_ids"
 CONF_TEMPERATURE_SUPPORTED = "temperature_supported"
 
 dolphin_ble_ns = cg.esphome_ns.namespace("dolphin_ble")
@@ -20,6 +21,7 @@ CONFIG_SCHEMA = cv.Schema(
             cv.mac_address, cv.one_of("", lower=True)
         ),
         cv.Optional(CONF_TIME_ID): cv.use_id(time_.RealTimeClock),
+        cv.Optional(CONF_TIME_IDS): cv.ensure_list(cv.use_id(time_.RealTimeClock)),
         cv.Optional(CONF_TEMPERATURE_SUPPORTED, default=False): cv.boolean,
     }
 ).extend(cv.COMPONENT_SCHEMA).extend(esp32_ble_tracker.ESP_BLE_DEVICE_SCHEMA)
@@ -34,3 +36,6 @@ async def to_code(config):
     if CONF_TIME_ID in config:
         time_var = await cg.get_variable(config[CONF_TIME_ID])
         cg.add(var.set_time_id(time_var))
+    for time_id in config.get(CONF_TIME_IDS, []):
+        time_var = await cg.get_variable(time_id)
+        cg.add(var.add_time_id(time_var))

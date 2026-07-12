@@ -37,7 +37,7 @@ returned a reliable temperature response.
   the ESP32/BLE setup and all Dolphin entities, but no Wi-Fi, API, OTA, or
   external-component source.
 - `dolphin_ble.import.yaml`: public dashboard-import entrypoint.
-- `dolphin_ble.yaml`: ready-to-customize local YAML for flashing.
+- `dolphin_ble.yaml`: ready-to-customize YAML for flashing.
 - `PROTOCOL.md`: protocol notes for the implemented packet behavior.
 - `secrets.example.yaml`: example local secrets file.
 
@@ -117,4 +117,4 @@ Use substitutions in `dolphin_ble.yaml`:
   connections through this ESP32 are disabled so they do not compete with the
   Dolphin BLE session.
 - The component synchronizes the power supply RTC on connection and hourly
-  thereafter using Home Assistant time.
+  thereafter using the first available time source: Home Assistant time or SNTP.

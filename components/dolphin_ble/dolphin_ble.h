@@ -45,6 +45,7 @@ class DolphinBle : public Component, public esp32_ble_tracker::ESPBTDeviceListen
 
   void set_mac_address(const std::string &mac) { this->mac_address_ = mac; }
   void set_time_id(time::RealTimeClock *time_id) { this->time_id_ = time_id; }
+  void add_time_id(time::RealTimeClock *time_id) { this->time_ids_.push_back(time_id); }
   void set_temperature_supported(bool supported) { this->temperature_supported_ = supported; }
 
   void set_numeric_sensor(uint8_t kind, sensor::Sensor *sensor);
@@ -136,6 +137,7 @@ class DolphinBle : public Component, public esp32_ble_tracker::ESPBTDeviceListen
   void queue_initialization_();
   void send_timezone_();
   void send_rtc_time_();
+  ESPTime get_valid_time_() const;
   bool send_local_notification_text_(const std::string &text);
   void send_command_frame_(uint8_t opcode, uint16_t destination, const uint8_t *payload,
                            size_t payload_len, const char *name, bool expects_response = true);
@@ -239,6 +241,7 @@ class DolphinBle : public Component, public esp32_ble_tracker::ESPBTDeviceListen
   uint32_t last_temp_poll_{0};
   uint32_t last_rtc_sync_{0};
   time::RealTimeClock *time_id_{nullptr};
+  std::vector<time::RealTimeClock *> time_ids_{};
 
   std::string rx_text_buffer_;
   std::string tx_text_buffer_;

@@ -37,13 +37,17 @@ bluetooth_proxy:
 dolphin_ble:
   id: dolphin_bridge
   mac_address: ${dolphin_mac}
-  time_id: homeassistant_time
+  time_ids:
+    - homeassistant_time
+    - sntp_time
   # This detail is profile-specific and may differ across robot models or firmware.
   temperature_supported: ${dolphin_temperature_supported}
 
 time:
   - platform: homeassistant
     id: homeassistant_time
+  - platform: sntp
+    id: sntp_time
 
 text_sensor:
   - platform: dolphin_ble
