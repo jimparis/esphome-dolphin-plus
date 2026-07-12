@@ -1,14 +1,12 @@
 defaults:
   dolphin_mac: ""
-  dolphin_temperature_supported: "false"
 
 esp32:
   board: esp32dev
   framework:
     type: esp-idf
     advanced:
-      # Smaller binary, more RAM.
-      minimum_chip_revision: "3.1"
+      # More RAM
       sram1_as_iram: true
     sdkconfig_options:
       CONFIG_BT_GATTC_ENABLE: y
@@ -40,8 +38,6 @@ dolphin_ble:
   time_ids:
     - homeassistant_time
     - sntp_time
-  # This detail is profile-specific and may differ across robot models or firmware.
-  temperature_supported: ${dolphin_temperature_supported}
 
 time:
   - platform: homeassistant

@@ -9,20 +9,9 @@ esphome:
   project:
     name: jim.dolphin_ble
     version: "1.0"
-
-dashboard_import:
-  package_import_url: github://jimparis/esphome-dolphin-plus/dolphin_ble.yaml@master
-  import_full_config: false
+  name_add_mac_suffix: true
 
 wifi:
-  ap:
-
-captive_portal:
-
-improv_serial:
-
-esp32_improv:
-  authorizer: none
 
 api:
 
@@ -31,6 +20,7 @@ ota:
 
 external_components:
   - source: github://jimparis/esphome-dolphin-plus@master
+    refresh: 10min
     components:
       - dolphin_ble
 
@@ -40,4 +30,4 @@ packages:
     files:
       - packages/dolphin_ble.yaml
     ref: master
-    refresh: 0s
+    refresh: 10min

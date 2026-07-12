@@ -36,7 +36,6 @@ returned a reliable temperature response.
 - `packages/dolphin_ble.yaml`: reusable public ESPHome package. This contains
   the ESP32/BLE setup and all Dolphin entities, but no Wi-Fi, API, OTA, or
   external-component source.
-- `dolphin_ble.import.yaml`: public dashboard-import entrypoint.
 - `dolphin_ble.yaml`: ready-to-customize YAML for flashing.
 - `PROTOCOL.md`: protocol notes for the implemented packet behavior.
 - `secrets.example.yaml`: example local secrets file.
@@ -46,7 +45,7 @@ returned a reliable temperature response.
 You need:
 
 - an ESP32 board supported by ESPHome;
-- ESPHome Dashboard or ESPHome CLI;
+- ESPHome Device Builder running
 - Wi-Fi credentials for the ESP32.
 
 The BLE MAC is optional. By default, the component auto-discovers a nearby
@@ -56,43 +55,13 @@ Maytronics address range. If multiple matching power supplies are nearby, set
 power supply. It can also be found with a BLE scanner or Home Assistant's
 Bluetooth diagnostics.
 
-1. Clone this repository:
+### Option 1: Web installer
 
-   ```sh
-   git clone https://github.com/jimparis/esphome-dolphin-plus.git
-   cd esphome-dolphin-plus
-   ```
+TODO
 
-2. Copy and edit the example secrets file:
+### Option 2: ESPHome Device Builder or CLI
 
-   ```sh
-   cp secrets.example.yaml secrets.yaml
-   ```
-
-   Set your Wi-Fi values. Set `dolphin_mac` only if you want to pin the
-   integration to one power supply instead of using auto-discovery.
-
-3. Flash `dolphin_ble.yaml` with ESPHome Dashboard or the ESPHome CLI:
-
-   ```sh
-   make flash
-   ```
-
-   The default serial port is `/dev/ttyUSB0`. To use another port:
-
-   ```sh
-   make flash PORT=/dev/ttyACM0
-   ```
-
-After the device boots on Wi-Fi, ESPHome Dashboard should offer to adopt/take
-control of it. Adoption works because the firmware includes ESPHome `project`
-metadata and `dashboard_import`.
-
-For later updates over the network:
-
-```sh
-make ota
-```
+Use the `dolphin_ble.yaml` in this repo to either flash via CLI (`esphome run dolphin_ble.yaml`), or import the YAML into the "Create Device" dialog of ESPHome Device Builder.  You probably will need to manually add Wifi credentials to the file at minimum.
 
 ## Configuration Knobs
 
@@ -103,7 +72,6 @@ Use substitutions in `dolphin_ble.yaml`:
 | `device_name` | No | `dolphin-ble` | ESPHome node name. |
 | `friendly_name` | No | `Dolphin BLE` | Home Assistant display name. |
 | `dolphin_mac` | No | empty | Optional BLE MAC address of the power supply. Leave empty for auto-discovery by Dolphin service UUID and Maytronics address range. |
-| `dolphin_temperature_supported` | No | `false` | Enable only after validating temperature support for your model. |
 
 ## Operational Notes
 
