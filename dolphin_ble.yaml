@@ -19,7 +19,7 @@ ota:
   - platform: esphome
 
 external_components:
-  - source: github://jimparis/esphome-dolphin-plus@master
+  - source: github://jimparis/esphome-dolphin-plus@main
     refresh: 10min
     components:
       - dolphin_ble
@@ -29,5 +29,5 @@ packages:
     url: https://github.com/jimparis/esphome-dolphin-plus
     files:
       - packages/dolphin_ble.yaml
-    ref: master
+    ref: main
     refresh: 10min

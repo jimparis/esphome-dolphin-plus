@@ -3,7 +3,7 @@ name: Publish Firmware
 on:
   push:
     branches:
-      - master
+      - main
     paths:
       - '*.yaml'
       - 'components/**'
