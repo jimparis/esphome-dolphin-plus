@@ -1311,9 +1311,8 @@ void DolphinBle::publish_mu_data_from_frame_(const std::vector<uint8_t> &frame) 
       this->publish_text_(TEXT_MU_SW_VERSION, ver_buf);
     }
 
-    // LED state is packed in data byte 155. The raw payload still includes
-    // the ACK byte, so read one byte later.
-    size_t led_raw_offset = 156;
+    // LED state is packed in data byte 155. Add D for the raw ACK byte.
+    size_t led_raw_offset = 155 + D;
     if (led_raw_offset >= payload_len) {
       ESP_LOGW(TAG, "MU LED raw offset %u is outside payload length %u",
                static_cast<unsigned>(led_raw_offset), static_cast<unsigned>(payload_len));
