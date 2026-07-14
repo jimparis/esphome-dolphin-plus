@@ -4,13 +4,25 @@ ESPHome external component and package for controlling a Maytronics Dolphin Plus
 power supply over BLE.
 
 This project runs on an ESP32 near the pool power supply. The ESP32 connects to
-the power supply over BLE and exposes robot state, cycle timing, cleaning
-controls, scheduling controls, manual drive, filter status, runtime counters,
-LED controls, and the resolved power-supply MAC address to Home Assistant
-through ESPHome.
+the power supply over BLE and exposes robot state and controls.
 
-This is not an official Maytronics integration. It has been tested with a
-Dolphin Nautilus CC Pro.
+This is not an official Maytronics integration. It has been tested
+with a Dolphin Nautilus CC Pro.
+
+## Quick Start
+
+You need an ESP32 board supported by ESPHome.  The quickest way to
+flash via serial port is using the web installer at
+
+https://jimparis.github.io/esphome-dolphin-plus/
+
+Or, flash via CLI:
+
+    uvx esphome run dolphin_ble.yaml
+
+Or use ESPHome Device Builder, etc.  After flashing, you can connect
+to its AP to configure WiFi credentials.
+
 
 ## Current Status
 
@@ -40,38 +52,12 @@ returned a reliable temperature response.
 - `PROTOCOL.md`: protocol notes for the implemented packet behavior.
 - `secrets.example.yaml`: example local secrets file.
 
-## Quick Start
-
-You need:
-
-- an ESP32 board supported by ESPHome;
-- ESPHome Device Builder running
-- Wi-Fi credentials for the ESP32.
-
 The BLE MAC is optional. By default, the component auto-discovers a nearby
 Maytronics power supply that advertises the Dolphin BLE service and uses a known
 Maytronics address range. If multiple matching power supplies are nearby, set
 `dolphin_mac` explicitly. The BLE MAC can often be found on a sticker on the
 power supply. It can also be found with a BLE scanner or Home Assistant's
 Bluetooth diagnostics.
-
-### Option 1: Web installer
-
-TODO
-
-### Option 2: ESPHome Device Builder or CLI
-
-Use the `dolphin_ble.yaml` in this repo to either flash via CLI (`esphome run dolphin_ble.yaml`), or import the YAML into the "Create Device" dialog of ESPHome Device Builder.  You probably will need to manually add Wifi credentials to the file at minimum.
-
-## Configuration Knobs
-
-Use substitutions in `dolphin_ble.yaml`:
-
-| Name | Required | Default | Description |
-| --- | --- | --- | --- |
-| `device_name` | No | `dolphin-ble` | ESPHome node name. |
-| `friendly_name` | No | `Dolphin BLE` | Home Assistant display name. |
-| `dolphin_mac` | No | empty | Optional BLE MAC address of the power supply. Leave empty for auto-discovery by Dolphin service UUID and Maytronics address range. |
 
 ## Operational Notes
 
