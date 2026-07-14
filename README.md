@@ -23,6 +23,9 @@ Or, flash via CLI:
 Or use ESPHome Device Builder, etc.  After flashing, you can:
 - connect to its AP to configure WiFi credentials
 - adopt the device from your ESPHome dashboard
+  - Note: this might be unreliable, maybe due to mDNS timing issues with
+    wifi/BT coexistence.  You could adopt it by copying the .yaml into
+    your esphome config dir instead.
 - add it to Home Assistant
   - It should show up under "Discovered" in Settings -> Integrations
   - Or, open the ESPHome integration and click "Add device" to add manually

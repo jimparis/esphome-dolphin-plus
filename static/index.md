@@ -3,7 +3,7 @@ See [the main Github repository](https://github.com/jimparis/esphome-dolphin-plu
 # Installation
 
 You can use the button below to install the pre-built firmware
-directly to your device via USB.
+directly to your ESP32 via USB.
 
 <esp-web-install-button manifest="firmware/dolphin_ble.manifest.json">
     <span slot="unsupported"><em>Oops!  Your browser doesn't support installing things on ESP devices. Use Google Chrome or Microsoft Edge.</em></span>
