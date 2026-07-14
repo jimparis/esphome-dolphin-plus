@@ -20,9 +20,12 @@ Or, flash via CLI:
 
     uvx esphome run dolphin_ble.yaml
 
-Or use ESPHome Device Builder, etc.  After flashing, you can connect
-to its AP to configure WiFi credentials.
-
+Or use ESPHome Device Builder, etc.  After flashing, you can:
+- connect to its AP to configure WiFi credentials
+- adopt the device from your ESPHome dashboard
+- add it to Home Assistant
+  - It should show up under "Discovered" in Settings -> Integrations
+  - Or, open the ESPHome integration and click "Add device" to add manually
 
 ## Current Status
 
