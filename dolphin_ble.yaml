@@ -11,6 +11,11 @@ esphome:
     version: "1.0"
   name_add_mac_suffix: true
 
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 1100ms
+    window: 110ms
+
 wifi:
   ap:
 
