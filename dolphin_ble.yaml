@@ -11,6 +11,10 @@ esphome:
     version: "1.0"
   name_add_mac_suffix: true
 
+dashboard_import:
+  package_import_url: github://jimparis/esphome-dolphin-plus/dolphin_ble.yaml@main
+  import_full_config: false
+
 esp32_ble_tracker:
   scan_parameters:
     interval: 1100ms
